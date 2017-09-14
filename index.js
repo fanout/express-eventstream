@@ -1,7 +1,4 @@
-const { Writable, Transform } = require('stream')
-
-// An EventStream
-exports = module.exports = (...opts) => new EventStream(...opts)
+const { Transform } = require('stream')
 
 // "A colon as the first character of a line is in essence a comment, and is ignored."
 // https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events#Event_stream_format
@@ -31,34 +28,6 @@ const textEventStream = {
     return events.join('\n\n') + '\n\n'
   }
 }
-
-/**
- * Stream of Events that should be delivered to clients
- */
-class EventStream {
-  constructor () {
-    this._waitingToSend = []
-    console.log('EventStream constructor')
-  }
-  createWritable () {
-    return new Writable({
-      objectMode: true,
-      write (chunk, encoding, callback) {
-
-      }
-    })
-  }
-  channel (channelName) {
-
-  }
-  // enqueue events to be delivered on a channel
-  enqueue (channel, events) {
-    if (!Array.isArray(events)) events = [events]
-    this._waitingToSend = this._waitingToSend.concat(events)
-    console.log('enqueued events', events)
-  }
-}
-exports.EventStream = EventStream
 
 let encoderId = 0
 class ServerSentEventEncoder extends Transform {
@@ -105,7 +74,9 @@ exports.createMiddleware = function (eventStream, options) {
         res.setHeader('Transfer-Encoding', 'chunked')
         res.status(200)
         res.write(textEventStream.stream(initialEvents))
-        encodedEventStream.pipe(res)
+        encodedEventStream
+          .pipe(res.on('finish', () => console.log('response finish (no more writes)'))
+                   .on('close', () => console.log('response close')))
       },
       'default': () => res.status(406).send('Not Acceptable')
     })
