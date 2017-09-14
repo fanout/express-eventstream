@@ -1,6 +1,7 @@
 const express = require('express')
 const expressEventStream = require('express-eventstream')
 const http = require('http')
+const path = require('path')
 
 if (require.main === module) {
   main()
@@ -15,19 +16,7 @@ if (require.main === module) {
  * Create a web server and have it start listening
  */
 function main() {
-  const router = express.Router()
-  router.route('/')
-    .get((req, res) => {
-      const name = req.query.name || 'you'
-      res.json({
-        message: `hello, ${name}`
-      })
-    })
-  
-  const app = express()
-    .use(require('morgan')('tiny'))
-    .use(expressEventStream.createMiddleware())
-    .use(router)
+  const app = createDemoApplication()
   const server = http.createServer(app)
   const port = process.env.PORT || 0
   return new Promise((resolve, reject) => {
@@ -42,4 +31,24 @@ function main() {
       console.warn(`listening on port ${server.address().port}`)
     })
   })
+}
+
+function createDemoApplication() {
+  const router = express.Router()
+  router.route('/')
+    .get((req, res) => {
+      const name = req.query.name || 'you'
+      const message = `hello, ${name}`
+      res.format({
+        html: () => res.render('index')
+      })
+    })
+
+  const app = express()
+    .use(require('morgan')('tiny'))
+    .use(expressEventStream.createMiddleware())
+    .use(express.static(__dirname + '/public'))
+    .use(router)
+
+  return app
 }
