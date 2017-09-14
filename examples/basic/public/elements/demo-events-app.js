@@ -1,67 +1,77 @@
+/* eslint-env browser */
+(function () {
   const ConnectionStates = makeEnum(
-    'uninitialized',
-    'connecting',
-    'open',
-    'closed'
-  )
+  'uninitialized',
+  'connecting',
+  'open',
+  'closed'
+)
+
   const EventSourceReadyStateToConnectionStates = [
     ConnectionStates.connecting,
     ConnectionStates.open,
-    ConnectionStates.closed,    
+    ConnectionStates.closed
   ]
+
+// Main Custom Element that renders the basic demo
   class DemoEventsApp extends HTMLElement {
     get initialState () {
       return {
         connectionLog: [],
         connectionState: ConnectionStates.uninitialized,
+        eventLog: []
       }
     }
-    constructor() {
-      super();
+    constructor () {
+      super()
       this._connected = false
       this.setState(this.initialState)
     }
-    connectedCallback() {
+    connectedCallback () {
       this._connected = true
       this.initialize()
       this._render()
     }
-    initialize() {
+    initialize () {
       this._initializeConnection()
     }
-    _initializeConnection() {
+    _initializeConnection () {
       if (this.state.connection) {
         throw new Error('_initializeConnection called when connection already exists')
       }
       const connectionUrl = this.getAttribute('url')
-      if ( ! connectionUrl) {
+      if (!connectionUrl) {
         const msg = 'DemoEventsApp cannot initializeConnection because it was not provided any `url` attribute'
         console.warn(msg)
         this._appendToConnectionLog(msg)
         return
       }
       this._appendToConnectionLog(`Starting connection initialization for ${connectionUrl}`)
-      const eventSource = new EventSource(connectionUrl);
+      const eventSource = new EventSource(connectionUrl)
       this.setState({
         connection: eventSource
       })
-      // bind listeners for connectionState
+    // bind listeners for connectionState
       const setConnectionStateFromEventSource = (eventSource) => {
         const connectionState = EventSourceReadyStateToConnectionStates[eventSource.readyState]
         this.setState({ connectionState })
       }
-      const connectionListener = createEventListener({
-        open: (event) => {
-          console.log('open event', event)
-        },
-        message: (event) => console.log('message event!', event),
-        error: (event) => {
-          console.log('error event', event)
-          this._appendToConnectionLog('Connection Error (Unknown Reason, check JS Console)')
-          setConnectionStateFromEventSource(event.target)
-        },
-        close: (event) => console.log('close event', event),
-      })
+      const connectionListener = createEventListener(Object.assign(
+        ['open', 'error', 'close'].reduce((handlers, eventName) => {
+          handlers[eventName] = event => {
+            console.debug(`eventSource ${eventName}`, event)
+            setConnectionStateFromEventSource(event.target)
+            this._appendToConnectionLog(eventName)
+          }
+          return handlers
+        }, {}),
+        ['message', 'time', 'stream-open'].reduce((handlers, eventName) => {
+          handlers[eventName] = (event) => {
+            this._appendToEventLog(event)
+          }
+          return handlers
+        }, {})
+      ))
       connectionListener.listenTo(eventSource)
       this.setState({ connectionListener })
     }
@@ -70,28 +80,38 @@
         connectionLog: this.state.connectionLog.concat([message])
       })
     }
-    render() {
-      const { connectionState, connectionLog } = this.state
+    _appendToEventLog (event) {
+      this.setState({
+        eventLog: this.state.eventLog.concat([event])
+      })
+    }
+    render () {
       const html = `
         <h2>Connection</h2>
         <dl>
-          <dt>Status</dt><dd>${connectionState}</dd>
+          <dt>Status</dt><dd>${this.state.connectionState}</dd>
         </dl>
         <h3>Connection Log</h3>
         <ol id="connection-log">${
-          connectionLog
+          this.state.connectionLog
             .map(log => {
               return `<li>${log}</li>`
             })
-            .join('')
+            .join('\n')
         }</ol>
 
         <h2>Events</h2>
-        <ul id="events-list"></ul>
+        <ul id="events-list">${
+          this.state.eventLog
+            .map(event => {
+              return `<li>${event.type} - ${event.data}</li>`
+            })
+            .join('\n')
+        }</ul>
       `
       return html
     }
-    setState(state) {
+    setState (state) {
       console.debug('setState', state, { oldState: this.state })
       this.state = Object.assign({}, this.state, state)
       this._render()
@@ -106,49 +126,50 @@
         this.innerHTML = html
       }
     }
-    attributeChangedCallback(attr, oldValue, newValue) {
-      this._render();
+    attributeChangedCallback (attr, oldValue, newValue) {
+      this._render()
     }
-    disconnectedCallback() {
+    disconnectedCallback () {
       this._connected = false
     }
-  }
-  window.customElements.define('demo-events-app', DemoEventsApp);
+}
+  window.customElements.define('demo-events-app', DemoEventsApp)
 
-  // Return an object whose properties and values always match
-  // and that has only the properties provided in `keys`
-  function makeEnum(...keys) {
+// Return an object whose properties and values always match
+// and that has only the properties provided in `keys`
+  function makeEnum (...keys) {
     return keys.reduce((obj, key) => {
       obj[key] = key
       return obj
     }, {})
   }
 
-  /*
-  usage:
-    const listener = createEventListener({
-      error: function (event) => {
-        console.log('error event!', event)
-        console.log('will stop listening since error')
-        this.stopListening(event.target)
-      }
-    })
-    htmlElement.addEventListener('error', listener)
-    // when you want to clean up right now
-    listener.stopListening(htmlElement)
-    // or to have listener remove itself itself up whenever it handles
-    // any other event
-    listener.stopListening()
-  */
+/*
+usage:
+  const listener = createEventListener({
+    error: function (event) => {
+      console.log('error event!', event)
+      console.log('will stop listening since error')
+      this.stopListening(event.target)
+    }
+  })
+  htmlElement.addEventListener('error', listener)
+  // when you want to clean up right now
+  listener.stopListening(htmlElement)
+  // or to have listener remove itself itself up whenever it handles
+  // any other event
+  listener.stopListening()
+*/
   function createEventListener (eventTypeToHandler) {
     let stopped = false
     const api = {
-      listenTo(element) {
+      listenTo (element) {
         Object.keys(eventTypeToHandler).forEach(eventType => {
+          console.log('addEventListener', eventType)
           element.addEventListener(eventType, this)
         })
       },
-      handleEvent(event) {
+      handleEvent (event) {
         if (stopped) {
           event.currentTarget.removeEventListener(event.type, this)
           return
@@ -158,17 +179,18 @@
           handler.call(this, event)
         }
       },
-      // if `optionalElement` is passed, listeners will be removed now,
-      // otherwise they will be removed on next handleEvent
-      stopListening(optionalElement) {
+    // if `optionalElement` is passed, listeners will be removed now,
+    // otherwise they will be removed on next handleEvent
+      stopListening (optionalElement) {
         if (optionalElement) {
           Object.keys(eventTypeToHandler).forEach(eventType => {
             optionalElement.removeEventListener(eventType, this)
           })
         } else {
-          stopped = true          
+          stopped = true
         }
-      },
+      }
     }
     return Object.assign(api, eventTypeToHandler)
   }
+}())
