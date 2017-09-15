@@ -42,7 +42,7 @@ class ServerSentEventEncoder extends Transform {
     this._id = String(encoderId++)
   }
   _transform (event, encoding, callback) {
-    this.push(textEventStream.stream(textEventStream.event(Object.assign({ encoder: this._id }, event))))
+    this.push(textEventStream.event(Object.assign({ encoder: this._id }, event)))
     callback()
   }
 }
@@ -71,13 +71,14 @@ function gripRequestFromHttp (req) {
  * Writable stream that publishes written events to a Grip Control Publish endpoint
  */
 class GripPubControlWritable extends Writable {
-  constructor (gripPubControl, channelName) {
+  constructor (gripPubControl, channel) {
     super({
       objectMode: true,
       write (event, encoding, callback) {
-        new Promise((resolve, reject) => gripPubControl.publishHttpStream(channelName, event, (success, message, context) => {
+        const sseEncodedEvent = textEventStream.event(event)
+        new Promise((resolve, reject) => gripPubControl.publishHttpStream(channel, sseEncodedEvent, (success, message, context) => {
           if (success) {
-            this.emit('grip:published', event)
+            this.emit('grip:published', { event, channel })
             resolve()
           } else {
             reject(new GripPublishFailedError(message, context))
@@ -111,8 +112,9 @@ exports.createMiddleware = function (options = {}) {
   }
   const gripPubControl = options.gripPubControl || new grip.GripPubControl(gripPubControlOptions)
   const encodedEventStream = new ServerSentEventEncoder()
-  const pubControlWritable = new GripPubControlWritable(gripPubControl, 'events-public')
-    .on('grip:published', (event) => debug('published to gripPubControl', event))
+  const publishChannel = 'events-all'
+  const pubControlWritable = new GripPubControlWritable(gripPubControl, publishChannel)
+    .on('grip:published', ({ event, channel }) => debug('published to gripPubControl', channel, event))
   // buffer of events that should be sent to responses, pushpin
   const events = new PassThrough({ objectMode: true })
 
@@ -142,7 +144,10 @@ exports.createMiddleware = function (options = {}) {
     if (gripRequest && gripRequest.sig && !grip.validateSig(gripRequest.sig, options.grip.key)) {
       throw new GripSigInvalidError('Grip-Sig invalid')
     }
-    // const eventRequest = await (options.createEventRequest || createEventRequest)(req)
+
+    const eventRequest = await (options.createEventRequestFromHttp || createEventRequestFromHttp)(req)
+    debug('eventRequest', eventRequest)
+    const channels = eventRequest.channels
 
     const initialEvents = []
 
@@ -165,6 +170,17 @@ exports.createMiddleware = function (options = {}) {
 
         if (gripRequest) {
           res.setHeader('Grip-Hold', 'stream')
+          res.setHeader('Grip-Channel', grip.createGripChannelHeader(channels.map(c => new grip.Channel(c))))
+          // stringify to escale newlines into '\n'
+          const keepAliveHeaderValue = [
+            textEventStream.event({
+              event: 'keep-alive',
+              data: ''
+            }).replace(/\n/g, '\\n'),
+            'format=cstring',
+            'timeout=20'
+          ].join('; ')
+          res.setHeader('Grip-Keep-Alive', keepAliveHeaderValue)
         } else {
           // do normal SSE over chunked HTTP
           res.setHeader('Connection', 'Transfer-Encoding')
@@ -199,10 +215,10 @@ exports.createMiddleware = function (options = {}) {
  * An EventRequest specifies what types of events a client wants.
  * Default implementation. An alternative can be provided on createMiddleware()
  */
-// function createEventRequest (httpRequest) {
-//   const channels = httpRequest.query.channels
-//   return { channels }
-// }
+function createEventRequestFromHttp (req) {
+  const channels = req.query.channel
+  return { channels }
+}
 
 /*
 Wrap an async function and return an Express http handler
