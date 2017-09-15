@@ -16,7 +16,8 @@ These endpoints are also [GRIP-aware](pushpin.org/docs/protocols/grip/), so they
 
 Make a request to your endpoint (you decide the path to mount it on) over HTTP. The endpoint will interpret the following querystring parameters:
 
-* channel - Which channels you'd like to subscribe to events from
+* channel - Which channels you'd like to subscribe to events from.
+  * If using pushpin, the corresponding pushpin channel names will all be prefixed with 'events-'. So if you provide '?channel=clock&channel=public', the underlying pushpin channels will be 'events-clock' and 'events-public'.
 
 ### Response
 

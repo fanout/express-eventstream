@@ -1,6 +1,7 @@
 const grip = require('grip')
 const { PassThrough, Transform, Writable } = require('stream')
 const debug = require('debug')('express-eventstream')
+const pump = require('pump')
 
 /**
  * @TODO (bengo) jsdoc all the things, ensure passes eslint
@@ -71,12 +72,12 @@ function gripRequestFromHttp (req) {
  * Writable stream that publishes written events to a Grip Control Publish endpoint
  */
 class GripPubControlWritable extends Writable {
-  constructor (gripPubControl, channel) {
+  constructor (gripPubControl, channel, { retryWait=5000 }={}) {
     super({
       objectMode: true,
       write (event, encoding, callback) {
         const sseEncodedEvent = textEventStream.event(event)
-        new Promise((resolve, reject) => gripPubControl.publishHttpStream(channel, sseEncodedEvent, (success, message, context) => {
+        const publish = (channel, content) => new Promise((resolve, reject) => gripPubControl.publishHttpStream(channel, content, (success, message, context) => {
           if (success) {
             this.emit('grip:published', { event, channel })
             resolve()
@@ -84,11 +85,32 @@ class GripPubControlWritable extends Writable {
             reject(new GripPublishFailedError(message, context))
           }
         }))
+        retry(() => publish(channel, sseEncodedEvent), {
+          wait: retryWait,
+          onError: (error) => {
+            console.warn(`Error publishing to Grip Control. Will retry in ${retryWait}ms`, error)
+          }
+        })
           .catch(callback)
           .then(callback)
       }
     })
   }
+}
+
+// if provided `doWork` function fails, retry until it succeeds
+// waiting `wait`ms before trying again
+// `onError` will be called on each failure
+function retry(doWork, { wait=1, onError }={}) {
+  return new Promise((resolve, reject) => {
+    const tryIt = () => {
+      doWork().then(resolve).catch((error) => {
+        if (typeof onError === 'function') onError(error)
+        setTimeout(tryIt, wait)
+      })
+    }
+    tryIt()
+  })
 }
 
 /**
@@ -114,6 +136,7 @@ exports.createMiddleware = function (options = {}) {
   const encodedEventStream = new ServerSentEventEncoder()
   const publishChannel = 'events-all'
   const pubControlWritable = new GripPubControlWritable(gripPubControl, publishChannel)
+    .on('error', (err) => console.error('pubControlWritable error', err))
     .on('grip:published', ({ event, channel }) => debug('published to gripPubControl', channel, event))
   // buffer of events that should be sent to responses, pushpin
   const events = new PassThrough({ objectMode: true })
@@ -148,6 +171,8 @@ exports.createMiddleware = function (options = {}) {
     const eventRequest = await (options.createEventRequestFromHttp || createEventRequestFromHttp)(req)
     debug('eventRequest', eventRequest)
     const channels = eventRequest.channels
+    // prefix with 'events-' for pushpin to isolate from other apps' using same pushpin
+    const pushpinChannels = channels.map(c => `events-${c}`)
 
     const initialEvents = []
 
@@ -170,7 +195,7 @@ exports.createMiddleware = function (options = {}) {
 
         if (gripRequest) {
           res.setHeader('Grip-Hold', 'stream')
-          res.setHeader('Grip-Channel', grip.createGripChannelHeader(channels.map(c => new grip.Channel(c))))
+          res.setHeader('Grip-Channel', grip.createGripChannelHeader(pushpinChannels.map(c => new grip.Channel(c))))
           // stringify to escale newlines into '\n'
           const keepAliveHeaderValue = [
             textEventStream.event({
