@@ -1,7 +1,6 @@
 const grip = require('grip')
 const { PassThrough, Transform, Writable } = require('stream')
 const debug = require('debug')('express-eventstream')
-const pump = require('pump')
 
 /**
  * @TODO (bengo) jsdoc all the things, ensure passes eslint
@@ -21,9 +20,9 @@ const textEventStream = {
     if (fields) {
       for (let [field, value] of Object.entries(fields)) {
         event += String(value)
-        .split(newline)
-        .map(chunk => field + ': ' + chunk)
-        .join(newline)
+          .split(newline)
+          .map(chunk => field + ': ' + chunk)
+          .join(newline)
         event += newline
       }
     }
@@ -72,27 +71,39 @@ function gripRequestFromHttp (req) {
  * Writable stream that publishes written events to a Grip Control Publish endpoint
  */
 class GripPubControlWritable extends Writable {
-  constructor (gripPubControl, channel, { retryWait=5000 }={}) {
+  constructor (gripPubControl, channel, { retryWait = 5000 } = {}) {
     super({
       objectMode: true,
       write (event, encoding, callback) {
+        console.log('GripPubControlWritable write()', event)
         const sseEncodedEvent = textEventStream.event(event)
-        const publish = (channel, content) => new Promise((resolve, reject) => gripPubControl.publishHttpStream(channel, content, (success, message, context) => {
-          if (success) {
-            this.emit('grip:published', { event, channel })
-            resolve()
-          } else {
-            reject(new GripPublishFailedError(message, context))
-          }
-        }))
-        retry(() => publish(channel, sseEncodedEvent), {
-          wait: retryWait,
-          onError: (error) => {
-            console.warn(`Error publishing to Grip Control. Will retry in ${retryWait}ms`, error)
-          }
-        })
+        let publish = (channel, content) => {
+          return new Promise((resolve, reject) => {
+            gripPubControl.publishHttpStream(channel, content, (success, message, context) => {
+              if (success) {
+                this.emit('grip:published', { event, channel })
+                resolve()
+              } else {
+                reject(new GripPublishFailedError(message, context))
+              }
+            })
+          })
+        }
+
+        if (retryWait) {
+          publish = retry(publish, {
+            wait: retryWait,
+            onError: (error) => {
+              console.warn(`Error publishing to Grip Control. Will retry in ${retryWait}ms`, error)
+            }
+          })
+        }
+
+        publish(channel, sseEncodedEvent)
           .catch(callback)
-          .then(callback)
+          .then(() => {
+            callback()
+          })
       }
     })
   }
@@ -101,16 +112,30 @@ class GripPubControlWritable extends Writable {
 // if provided `doWork` function fails, retry until it succeeds
 // waiting `wait`ms before trying again
 // `onError` will be called on each failure
-function retry(doWork, { wait=1, onError }={}) {
-  return new Promise((resolve, reject) => {
+function retry (doWork, { wait = 1, onError } = {}) {
+  return (...args) => new Promise((resolve, reject) => {
     const tryIt = () => {
-      doWork().then(resolve).catch((error) => {
+      doWork(...args).then(resolve).catch((error) => {
         if (typeof onError === 'function') onError(error)
         setTimeout(tryIt, wait)
       })
     }
     tryIt()
   })
+}
+
+function pipeWithErrors () { // eslint-disable-line no-unused-vars 
+  let [src, ...streams] = Array.prototype.slice.call(arguments)
+  let dest
+  for (let stream of streams) {
+    dest = stream
+    src.once('error', (error) => {
+      dest.emit('error', error)
+    })
+    src.pipe(dest)
+    src = dest
+  }
+  return dest
 }
 
 /**
@@ -135,42 +160,54 @@ exports.createMiddleware = function (options = {}) {
   const gripPubControl = options.gripPubControl || new grip.GripPubControl(gripPubControlOptions)
   const encodedEventStream = new ServerSentEventEncoder()
   const publishChannel = 'events-all'
-  const pubControlWritable = new GripPubControlWritable(gripPubControl, publishChannel)
-    .on('error', (err) => console.error('pubControlWritable error', err))
+  const pubControlWritable = new GripPubControlWritable(gripPubControl, publishChannel, { retryWait: 5000 })
+    .on('error', (error) => {
+      console.log('pubControlWritable error (does removing this cause unhandledRejection', error.name)
+      throw error
+    })
     .on('grip:published', ({ event, channel }) => debug('published to gripPubControl', channel, event))
   // buffer of events that should be sent to responses, pushpin
   const events = new PassThrough({ objectMode: true })
 
   // buffer for those going to pub control over HTTP requests
   const eventsForPubControl = new PassThrough({ objectMode: true })
-  events.pipe(eventsForPubControl).pipe(pubControlWritable)
+  // pipeWithErrors(events, eventsForPubControl, pubControlWritable)
+  events
+    .pipe(eventsForPubControl)
+    .pipe(pubControlWritable)
 
   // separate PassThrough here so buffering occurs here and pubcontrol stream gets events as fast as possible
   const eventsForHttpResponses = new PassThrough({ objectMode: true })
   events.pipe(eventsForHttpResponses).pipe(encodedEventStream)
 
-  // start pumping from user's input events
-  const userEvents = options.events
-  if (userEvents && userEvents.pipe) {
-    userEvents.pipe(events)
+  // start pumping from the 'appEvents' provided by the user of this lib
+  const appEvents = options.events
+  if (appEvents && appEvents.pipe) {
+    appEvents.pipe(events)
+      .on('unpipe', (src) => {
+        console.log('events unpipe - repiping')
+        src.pipe(pubControlWritable)
+      })
   } else {
     console.warn('No events will flow because none provided via options.events')
   }
 
   let nextMessageId = 0
-  return httpRequestHandler(async function (req, res, next) {
-    debug('in express-eventstream request handler', req.params, req.method, req.url, req.headers)
-
+  return httpRequestHandler(protocolErrorHandler(async function (req, res, next) {
     const gripRequest = gripRequestFromHttp(req)
-    debug('gripRequest', gripRequest)
 
+    // validate sig
     if (gripRequest && gripRequest.sig && !grip.validateSig(gripRequest.sig, options.grip.key)) {
       throw new GripSigInvalidError('Grip-Sig invalid')
     }
 
-    const eventRequest = await (options.createEventRequestFromHttp || createEventRequestFromHttp)(req)
-    debug('eventRequest', eventRequest)
+    const eventRequest = (options.createEventRequestFromHttp || createEventRequestFromHttp)(req)
     const channels = eventRequest.channels
+
+    if (!channels || !channels.length) {
+      throw new ExpressEventStreamProtocolError('You must specify one or more channels to subscribe to using one or more ?channel querystring parameters')
+    }
+
     // prefix with 'events-' for pushpin to isolate from other apps' using same pushpin
     const pushpinChannels = channels.map(c => `events-${c}`)
 
@@ -228,11 +265,53 @@ exports.createMiddleware = function (options = {}) {
         debug('piping encoded to res')
         encodedEventStream
           .pipe(res.on('finish', () => debug('response finish (no more writes)'))
-                   .on('close', () => debug('response close')))
+            .on('close', () => debug('response close')))
       },
       'default': () => res.status(406).send('Not Acceptable')
     })
-  })
+  }))
+}
+
+// create events for the 'stream-*' events that are specific
+// to this library
+const libraryProtocol = {
+  event: (type, data, id) => Object.assign(
+    { event: type },
+    id && { id },
+    data && { data: JSON.stringify(data) }
+  ),
+  errorEvent: function (condition, text) {
+    const data = { condition, text }
+    return this.event('stream-error', data, 'error')
+  }
+}
+
+function protocolErrorHandler (handler) {
+  return async function (req, res, next) {
+    try {
+      await handler(req, res, next)
+    } catch (error) {
+      if (error instanceof ExpressEventStreamProtocolError) {
+        debug('ExpressEventStreamProtocolError', error.name, error.message)
+        const message = 'Bad Request: ' + error.message
+        res.format({
+          'text/event-stream': () => {
+            res.status(200)
+            res.setHeader('content-type', 'text/event-stream')
+            res.write(textEventStream.stream(textEventStream.event(
+              libraryProtocol.errorEvent('bad-request', message)
+            )))
+          },
+          default: () => {
+            res.status(400).send(message)
+          }
+        })
+
+        return
+      }
+      throw error
+    }
+  }
 }
 
 /**
@@ -292,6 +371,10 @@ class GripPublishFailedError extends ExpressEventStreamError {
     Object.assign(this, { context })
   }
 }
+
+// When the client does something against the protocol that this library depends on, like:
+// * requesting events without specifying ?channel
+class ExpressEventStreamProtocolError extends ExpressEventStreamError {}
 
 /**
 # -*- coding: utf-8 -*-

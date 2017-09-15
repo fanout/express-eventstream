@@ -1,11 +1,11 @@
 /* eslint-env browser */
 (function () {
   const ConnectionStates = makeEnum(
-  'uninitialized',
-  'connecting',
-  'open',
-  'closed'
-)
+    'uninitialized',
+    'connecting',
+    'open',
+    'closed'
+  )
 
   const EventSourceReadyStateToConnectionStates = [
     ConnectionStates.connecting,
@@ -13,7 +13,7 @@
     ConnectionStates.closed
   ]
 
-// Main Custom Element that renders the basic demo
+  // Main Custom Element that renders the basic demo
   class DemoEventsApp extends HTMLElement {
     get initialState () {
       return {
@@ -51,7 +51,7 @@
       this.setState({
         connection: eventSource
       })
-    // bind listeners for connectionState
+      // bind listeners for connectionState
       const setConnectionStateFromEventSource = (eventSource) => {
         const connectionState = EventSourceReadyStateToConnectionStates[eventSource.readyState]
         this.setState({ connectionState })
@@ -65,7 +65,7 @@
           }
           return handlers
         }, {}),
-        ['message', 'time', 'stream-open'].reduce((handlers, eventName) => {
+        ['message', 'time', 'stream-open', 'stream-error'].reduce((handlers, eventName) => {
           handlers[eventName] = (event) => {
             this._appendToEventLog(event)
           }
@@ -93,21 +93,21 @@
         </dl>
         <h3>Connection Log</h3>
         <ol id="connection-log">${
-          this.state.connectionLog
-            .map(log => {
-              return `<li>${log}</li>`
-            })
-            .join('\n')
-        }</ol>
+  this.state.connectionLog
+    .map(log => {
+      return `<li>${log}</li>`
+    })
+    .join('\n')
+  }</ol>
 
         <h2>Events</h2>
         <ul id="events-list">${
-          this.state.eventLog
-            .map(event => {
-              return `<li>${event.type} - ${event.data}</li>`
-            })
-            .join('\n')
-        }</ul>
+  this.state.eventLog
+    .map(event => {
+      return `<li>${event.type} - ${event.data}</li>`
+    })
+    .join('\n')
+  }</ul>
       `
       return html
     }
@@ -132,11 +132,11 @@
     disconnectedCallback () {
       this._connected = false
     }
-}
+  }
   window.customElements.define('demo-events-app', DemoEventsApp)
 
-// Return an object whose properties and values always match
-// and that has only the properties provided in `keys`
+  // Return an object whose properties and values always match
+  // and that has only the properties provided in `keys`
   function makeEnum (...keys) {
     return keys.reduce((obj, key) => {
       obj[key] = key
@@ -144,7 +144,7 @@
     }, {})
   }
 
-/*
+  /*
 usage:
   const listener = createEventListener({
     error: function (event) => {
@@ -179,8 +179,8 @@ usage:
           handler.call(this, event)
         }
       },
-    // if `optionalElement` is passed, listeners will be removed now,
-    // otherwise they will be removed on next handleEvent
+      // if `optionalElement` is passed, listeners will be removed now,
+      // otherwise they will be removed on next handleEvent
       stopListening (optionalElement) {
         if (optionalElement) {
           Object.keys(eventTypeToHandler).forEach(eventType => {

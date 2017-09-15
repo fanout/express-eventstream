@@ -6,13 +6,14 @@ const { PassThrough } = require('stream')
 const path = require('path')
 
 if (require.main === module) {
-  process.on('unhandledRejection', (err) => {
-    console.error('unhandledRejection', err)
-    // process.exit(1)
+  process.on('unhandledRejection', (err, p) => {
+    console.error('unhandledRejection', p.ben, p, err)
+    process.exit(1)
   })
   main()
     .then(() => process.exit(0))
     .catch(err => {
+      console.error('main() error. shutting down')
       console.trace(err)
       process.exit(1)
     })
