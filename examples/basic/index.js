@@ -19,7 +19,10 @@ if (require.main === module) {
  */
 function main () {
   const app = createDemoApplication({
-    eventsUrl: process.env.GRIP_URL
+    eventsUrl: process.env.GRIP_URL,
+    grip: {
+      key: process.env.GRIP_KEY || 'changeme' // 'changeme' is the default key that ships with local pushpin
+    }
   })
   const server = http.createServer(app)
   const port = process.env.PORT || 0
@@ -38,25 +41,22 @@ function main () {
   })
 }
 
-function createDemoApplication (settings) {
+function createDemoApplication ({ eventsUrl, grip }) {
   const router = express.Router()
   router.route('/')
     .get((req, res) => {
-      const eventsUrl = req.query.eventsUrl || settings.eventsUrl || '/events/'
-      const context = {
-        elementsUrl: '/elements',
-        eventsUrl
-      }
       res.format({
-        html: () => res.send(renderIndexHtml(context))
+        html: () => res.send(renderIndexHtml({
+          elementsUrl: '/elements',
+          eventsUrl: req.query.eventsUrl || eventsUrl || '/events/'
+        }))
       })
     })
 
-  // const eventStream = expressEventStream()
-  const eventStream = new PassThrough({ readableObjectMode: true, writableObjectMode: true })
+  const events = new PassThrough({ readableObjectMode: true, writableObjectMode: true })
+  // TODO: publish on 'clock' channel
   setInterval(() => {
-    console.log('writing time...')
-    eventStream.write({
+    events.write({
       event: 'time',
       data: (new Date()).toISOString()
     })
@@ -64,7 +64,7 @@ function createDemoApplication (settings) {
 
   const app = express()
     .use(require('morgan')('tiny'))
-    .use('/events/', expressEventStream.createMiddleware(eventStream))
+    .use('/events/', expressEventStream.createMiddleware({ events, grip }))
     .use(express.static(path.join(__dirname, '/public')))
     .use(router)
 

@@ -1,4 +1,9 @@
+const grip = require('grip')
 const { Transform } = require('stream')
+
+/**
+ * @TODO (bengo) jsdoc all the things, ensure passes eslint
+ */
 
 // "A colon as the first character of a line is in essence a comment, and is ignored."
 // https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events#Event_stream_format
@@ -42,15 +47,46 @@ class ServerSentEventEncoder extends Transform {
 }
 
 /**
+ * given an http request, return an object with any grip-specific instructions (by parsing headers)
+ * If there is no sign of the client speaking grip, return falsy
+ * @param {http.IncomingMessage} req - http request
+ */
+function gripRequestFromHttp (req) {
+  const gripRequest = Array.from(Object.entries(req.headers)).reduce((gripRequest, [header, value]) => {
+    if (header.toLowerCase().startsWith('grip-')) {
+      const key = header.replace(/^Grip-/i, '')
+      gripRequest[key] = value
+    }
+    return gripRequest
+  }, {})
+  if (!Object.keys(gripRequest).length) {
+    // was not grippy
+    return
+  }
+  return gripRequest
+}
+
+/**
  * Create an express middleware for an EventStream.
  * The middleware will respond to HTTP requests from Pushpin in order to
  * deliver any Events written to the EventStream
  */
-exports.createMiddleware = function (eventStream, options) {
+exports.createMiddleware = function (options = {}) {
+  const events = options.events
   let nextMessageId = 0
-  const encodedEventStream = eventStream.pipe(new ServerSentEventEncoder())
+  const encodedEventStream = new ServerSentEventEncoder()
+  if (events) {
+    events.pipe(encodedEventStream)
+  }
   return httpRequestHandler(async function (req, res, next) {
-    console.log('in express-eventstream request handler', req.params, req.method, req.url)
+    console.log('in express-eventstream request handler', req.params, req.method, req.url, req.headers)
+
+    const gripRequest = gripRequestFromHttp(req)
+    console.log('gripRequest', gripRequest)
+
+    if (gripRequest && gripRequest.sig && !grip.validateSig(gripRequest.sig, 'changeme')) {
+      throw new GripSigInvalidError('Grip-Sig invalid')
+    }
     // const eventRequest = await (options.createEventRequest || createEventRequest)(req)
 
     const initialEvents = []
@@ -115,6 +151,24 @@ function httpRequestHandler (handleRequest) {
     if (!calledNext) nextForExpress()
   }
 }
+
+// Base Class for custom errors
+// https://stackoverflow.com/a/31090384
+class ExtendableError extends Error {
+  constructor (message) {
+    super(message)
+    this.name = this.constructor.name
+    if (typeof Error.captureStackTrace === 'function') {
+      Error.captureStackTrace(this, this.constructor)
+    } else {
+      this.stack = (new Error(message)).stack
+    }
+  }
+}
+
+class ExpressEventStreamError extends ExtendableError {}
+
+class GripSigInvalidError extends ExpressEventStreamError {}
 
 /**
 # -*- coding: utf-8 -*-
