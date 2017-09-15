@@ -1,5 +1,6 @@
 const grip = require('grip')
 const { PassThrough, Transform, Writable } = require('stream')
+const debug = require('debug')('express-eventstream')
 
 /**
  * @TODO (bengo) jsdoc all the things, ensure passes eslint
@@ -108,11 +109,10 @@ exports.createMiddleware = function (options = {}) {
     control_uri: controlUri,
     key: options.grip.key
   }
-  console.log('constructing GripPubControl with', gripPubControlOptions)
   const gripPubControl = options.gripPubControl || new grip.GripPubControl(gripPubControlOptions)
   const encodedEventStream = new ServerSentEventEncoder()
   const pubControlWritable = new GripPubControlWritable(gripPubControl, 'events-public')
-    .on('grip:published', (event) => console.log('published to gripPubControl', event))
+    .on('grip:published', (event) => debug('published to gripPubControl', event))
   // buffer of events that should be sent to responses, pushpin
   const events = new PassThrough({ objectMode: true })
 
@@ -134,10 +134,10 @@ exports.createMiddleware = function (options = {}) {
 
   let nextMessageId = 0
   return httpRequestHandler(async function (req, res, next) {
-    console.log('in express-eventstream request handler', req.params, req.method, req.url, req.headers)
+    debug('in express-eventstream request handler', req.params, req.method, req.url, req.headers)
 
     const gripRequest = gripRequestFromHttp(req)
-    console.log('gripRequest', gripRequest)
+    debug('gripRequest', gripRequest)
 
     if (gripRequest && gripRequest.sig && !grip.validateSig(gripRequest.sig, options.grip.key)) {
       throw new GripSigInvalidError('Grip-Sig invalid')
@@ -177,17 +177,17 @@ exports.createMiddleware = function (options = {}) {
 
         if (gripRequest) {
           // return early. user events will be delivered via pubcontrol
-          console.log('its grip, returning early')
+          debug('its grip, returning early')
           res.end()
           return
         }
 
         // @TODO (bengo) all responses will only go as fast as the slowest response socket. Might be good to use something like
         // npm.im/fastest-writable to drop slow connections (who could recover via lastEventId) (https://stackoverflow.com/a/33879208 might also be useful)
-        console.log('piping encoded to res')
+        debug('piping encoded to res')
         encodedEventStream
-          .pipe(res.on('finish', () => console.log('response finish (no more writes)'))
-                   .on('close', () => console.log('response close')))
+          .pipe(res.on('finish', () => debug('response finish (no more writes)'))
+                   .on('close', () => debug('response close')))
       },
       'default': () => res.status(406).send('Not Acceptable')
     })
