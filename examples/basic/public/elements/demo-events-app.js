@@ -52,28 +52,41 @@
         connection: eventSource
       })
       // bind listeners for connectionState
-      const setConnectionStateFromEventSource = (eventSource) => {
-        const connectionState = EventSourceReadyStateToConnectionStates[eventSource.readyState]
-        this.setState({ connectionState })
-      }
       const connectionListener = createEventListener(Object.assign(
         ['open', 'error', 'close'].reduce((handlers, eventName) => {
           handlers[eventName] = event => {
             console.debug(`eventSource ${eventName}`, event)
-            setConnectionStateFromEventSource(event.target)
+            this._setConnectionStateFromEventSource(event.target)
             this._appendToConnectionLog(eventName)
           }
           return handlers
         }, {}),
-        ['message', 'time', 'stream-open', 'stream-error'].reduce((handlers, eventName) => {
+        ['message', 'time', 'stream-open'].reduce((handlers, eventName) => {
           handlers[eventName] = (event) => {
             this._appendToEventLog(event)
           }
           return handlers
-        }, {})
+        }, {}),
+        {
+          'stream-error': (event) => {
+            // means the client shouldn't reconnect.
+            this._appendToEventLog(event)
+            this._closeConnection()
+            this._appendToConnectionLog('Will not re-connect due to stream-error')
+          }
+        }
       ))
       connectionListener.listenTo(eventSource)
       this.setState({ connectionListener })
+    }
+    _setConnectionStateFromEventSource (eventSource) {
+      const connectionState = EventSourceReadyStateToConnectionStates[eventSource.readyState]
+      this.setState({ connectionState })
+    }
+    _closeConnection () {
+      const { connection } = this.state
+      connection.close()
+      connection.dispatchEvent(new Event('close'))
     }
     _appendToConnectionLog (message) {
       this.setState({
