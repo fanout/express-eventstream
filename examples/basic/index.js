@@ -21,7 +21,8 @@ function main () {
   const app = createDemoApplication({
     eventsUrl: process.env.GRIP_URL,
     grip: {
-      key: process.env.GRIP_KEY || 'changeme' // 'changeme' is the default key that ships with local pushpin
+      key: process.env.GRIP_KEY || 'changeme', // 'changeme' is the default key that ships with local pushpin
+      controlUri: process.env.GRIP_CONTROL_URI || 'http://localhost:5561' // defaults to local pushpin
     }
   })
   const server = http.createServer(app)
@@ -53,7 +54,7 @@ function createDemoApplication ({ eventsUrl, grip }) {
       })
     })
 
-  const events = new PassThrough({ readableObjectMode: true, writableObjectMode: true })
+  const events = new PassThrough({ objectMode: true })
   // TODO: publish on 'clock' channel
   setInterval(() => {
     events.write({

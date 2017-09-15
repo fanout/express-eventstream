@@ -1,5 +1,5 @@
 const grip = require('grip')
-const { Transform } = require('stream')
+const { PassThrough, Transform, Writable } = require('stream')
 
 /**
  * @TODO (bengo) jsdoc all the things, ensure passes eslint
@@ -67,24 +67,79 @@ function gripRequestFromHttp (req) {
 }
 
 /**
+ * Writable stream that publishes written events to a Grip Control Publish endpoint
+ */
+class GripPubControlWritable extends Writable {
+  constructor (gripPubControl, channelName) {
+    super({
+      objectMode: true,
+      write (event, encoding, callback) {
+        new Promise((resolve, reject) => gripPubControl.publishHttpStream(channelName, event, (success, message, context) => {
+          if (success) {
+            this.emit('grip:published', event)
+            resolve()
+          } else {
+            reject(new GripPublishFailedError(message, context))
+          }
+        }))
+          .catch(callback)
+          .then(callback)
+      }
+    })
+  }
+}
+
+/**
  * Create an express middleware for an EventStream.
  * The middleware will respond to HTTP requests from Pushpin in order to
  * deliver any Events written to the EventStream
+ * @param {stream.Readable} options.events - stream of Event objects that will be sent to users
+ * @param {Object} options.grip - Grip options
+ * @param {String} options.grip.key - secret key that will be used to validate Grip-Sig headers
+ * @param {String} options.grip.controlUri - URI of Control Plane server that will be used to publish events when using GRIP
  */
 exports.createMiddleware = function (options = {}) {
-  const events = options.events
-  let nextMessageId = 0
-  const encodedEventStream = new ServerSentEventEncoder()
-  if (events) {
-    events.pipe(encodedEventStream)
+  options = Object.assign({ grip: {} }, options)
+  const controlUri = options.grip.controlUri
+  if (!controlUri) {
+    console.warn('Will not be able to publish to gripPubControl with falsy uri: ', controlUri)
   }
+  const gripPubControlOptions = {
+    control_uri: controlUri,
+    key: options.grip.key
+  }
+  console.log('constructing GripPubControl with', gripPubControlOptions)
+  const gripPubControl = options.gripPubControl || new grip.GripPubControl(gripPubControlOptions)
+  const encodedEventStream = new ServerSentEventEncoder()
+  const pubControlWritable = new GripPubControlWritable(gripPubControl, 'events-public')
+    .on('grip:published', (event) => console.log('published to gripPubControl', event))
+  // buffer of events that should be sent to responses, pushpin
+  const events = new PassThrough({ objectMode: true })
+
+  // buffer for those going to pub control over HTTP requests
+  const eventsForPubControl = new PassThrough({ objectMode: true })
+  events.pipe(eventsForPubControl).pipe(pubControlWritable)
+
+  // separate PassThrough here so buffering occurs here and pubcontrol stream gets events as fast as possible
+  const eventsForHttpResponses = new PassThrough({ objectMode: true })
+  events.pipe(eventsForHttpResponses).pipe(encodedEventStream)
+
+  // start pumping from user's input events
+  const userEvents = options.events
+  if (userEvents && userEvents.pipe) {
+    userEvents.pipe(events)
+  } else {
+    console.warn('No events will flow because none provided via options.events')
+  }
+
+  let nextMessageId = 0
   return httpRequestHandler(async function (req, res, next) {
     console.log('in express-eventstream request handler', req.params, req.method, req.url, req.headers)
 
     const gripRequest = gripRequestFromHttp(req)
     console.log('gripRequest', gripRequest)
 
-    if (gripRequest && gripRequest.sig && !grip.validateSig(gripRequest.sig, 'changeme')) {
+    if (gripRequest && gripRequest.sig && !grip.validateSig(gripRequest.sig, options.grip.key)) {
       throw new GripSigInvalidError('Grip-Sig invalid')
     }
     // const eventRequest = await (options.createEventRequest || createEventRequest)(req)
@@ -100,16 +155,36 @@ exports.createMiddleware = function (options = {}) {
 
     initialEvents.push(textEventStream.event({
       id: String(++nextMessageId),
-      event: 'stream-connected',
+      event: 'stream-open',
       data: ''
     }))
 
     res.format({
       'text/event-stream': () => {
-        res.setHeader('Connection', 'Transfer-Encoding')
-        res.setHeader('Transfer-Encoding', 'chunked')
         res.status(200)
+
+        if (gripRequest) {
+          res.setHeader('Grip-Hold', 'stream')
+        } else {
+          // do normal SSE over chunked HTTP
+          res.setHeader('Connection', 'Transfer-Encoding')
+          res.setHeader('Transfer-Encoding', 'chunked')
+        }
+
+        // TODO: may need to not do this if it's a gripRequest re-connecting/paging
+        // TODO: maybe dont include padding bytes if pushpin/grip
         res.write(textEventStream.stream(initialEvents))
+
+        if (gripRequest) {
+          // return early. user events will be delivered via pubcontrol
+          console.log('its grip, returning early')
+          res.end()
+          return
+        }
+
+        // @TODO (bengo) all responses will only go as fast as the slowest response socket. Might be good to use something like
+        // npm.im/fastest-writable to drop slow connections (who could recover via lastEventId) (https://stackoverflow.com/a/33879208 might also be useful)
+        console.log('piping encoded to res')
         encodedEventStream
           .pipe(res.on('finish', () => console.log('response finish (no more writes)'))
                    .on('close', () => console.log('response close')))
@@ -169,6 +244,13 @@ class ExtendableError extends Error {
 class ExpressEventStreamError extends ExtendableError {}
 
 class GripSigInvalidError extends ExpressEventStreamError {}
+
+class GripPublishFailedError extends ExpressEventStreamError {
+  constructor (message, context) {
+    super()
+    Object.assign(this, { context })
+  }
+}
 
 /**
 # -*- coding: utf-8 -*-
