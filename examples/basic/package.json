@@ -15,5 +15,8 @@
     "express": "^4.15.4",
     "morgan": "^1.8.2"
   },
-  "devDependencies": {}
+  "devDependencies": {},
+  "engines": {
+    "node": ">=7.6.0"
+  }
 }
