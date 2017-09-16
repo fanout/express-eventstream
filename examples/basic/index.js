@@ -61,7 +61,7 @@ function createDemoApplication ({ eventsUrl, grip }) {
  */
 function main () {
   const app = createDemoApplication({
-    eventsUrl: process.env.GRIP_URL || '/events/?channel=all',
+    eventsUrl: process.env.GRIP_URL || '/events/?channel=clock',
     grip: {
       key: process.env.GRIP_KEY || 'changeme', // 'changeme' is the default key that ships with local pushpin
       controlUri: process.env.GRIP_CONTROL_URI || 'http://localhost:5561' // defaults to local pushpin
