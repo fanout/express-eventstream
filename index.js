@@ -12,7 +12,7 @@ const { EventEmitter } = require('events')
  * @param {String} grip.controlUri - URI of Control Plane server that will be used to publish events when using GRIP
  * @returns {Events} object your application can publish events to
  */
-exports.events = ({ grip, gripPubControl } = {}) => {
+exports.events = ({ grip, gripPubControl, prefix='events-' } = {}) => {
   if (!gripPubControl && grip) {
     if (!grip.controlUri) {
       console.warn('Will not be able to publish to gripPubControl with falsy uri: ', grip.controlUri)
@@ -22,14 +22,14 @@ exports.events = ({ grip, gripPubControl } = {}) => {
       key: grip.key
     })
   }
-  return Events({ gripPubControl })
+  return Events({ gripPubControl, prefix })
 }
 
 /**
  * An application's events, which can be published across one or more channels
  * @returns {Events}
  */
-function Events ({ gripPubControl }) {
+function Events ({ gripPubControl, prefix }) {
   if (!gripPubControl) debug('Events will not publish to grip because no gripPubControl', gripPubControl)
   // all events written to all channels as { channel, event } objects
   let addressedEvents = new EventEmitter().on('addressedEvent', (ae) => debug('express-eventstream event', ae))
@@ -40,13 +40,14 @@ function Events ({ gripPubControl }) {
    * @property {function} createAddressedEventsReadable
    */
   return {
+    prefix,
     /**
      * Return a Writable that represents a Channel. Write event objects to it to publish to that channel.
      * @param {String} channelName - name of channel that written events will be published to
      * @returns {Writable}
      */
     channel (channelName) {
-      const pubControlWritable = gripPubControl && new GripPubControlWritable(gripPubControl, channelName, { retryWait: 5000 })
+      const pubControlWritable = gripPubControl && new GripPubControlWritable(gripPubControl, `${prefix}${channelName}`, { retryWait: 5000 })
         .on('error', (error) => {
           console.log('pubControlWritable error (does removing this cause unhandledRejection', error.name)
           throw error
@@ -320,10 +321,10 @@ exports.express = function (options = {}) {
       throw new ExpressEventStreamProtocolError('You must specify one or more channels to subscribe to using one or more ?channel querystring parameters')
     }
 
-    // prefix with 'events-' for pushpin to isolate from other apps' using same pushpin
-    const pushpinChannels = channels.map(c => `events-${c}`)
-    const filteredAppEvents = addressedEvents.pipe(new AddressedEventFilter({ channels: pushpinChannels }))
-
+    // prefix with appEvents.prefix for pushpin to isolate from other apps' using same pushpin
+    console.log('channels', channels, eventRequest)
+    const filteredAppEvents = addressedEvents.pipe(new AddressedEventFilter({ channels }))
+    const prefixedChannels = channels.map(c => `${appEvents.prefix}${c}`)
     const initialEvents = []
 
     // TODO: may only be needed for certain browsers: https://github.com/Yaffle/EventSource/blob/master/README.md#browser-support
@@ -345,7 +346,7 @@ exports.express = function (options = {}) {
 
         if (gripRequest) {
           res.setHeader('Grip-Hold', 'stream')
-          res.setHeader('Grip-Channel', gripLib.createGripChannelHeader(pushpinChannels.map(c => new gripLib.Channel(c))))
+          res.setHeader('Grip-Channel', gripLib.createGripChannelHeader(prefixedChannels.map(c => new gripLib.Channel(c))))
           // stringify to escale newlines into '\n'
           const keepAliveHeaderValue = [
             textEventStream.event({
@@ -459,7 +460,7 @@ function protocolErrorHandler (handler) {
 function createEventRequestFromHttp (req) {
   let channels = req.query.channel
   if (!Array.isArray(channels)) {
-    channels = [channels]
+    channels = [channels].filter(Boolean)
   }
   /*
    * @typedef EventRequest

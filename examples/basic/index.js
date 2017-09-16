@@ -39,8 +39,8 @@ function TimeEvents ({ interval = 1000 } = {}) {
 function createDemoApplication ({ eventsUrl, grip }) {
   const timeEvents = TimeEvents({ interval: 5 * 1000 })
   const events = expressEventStream.events({ grip })
-  timeEvents.pipe(events.channel('events-clock'))
-  // for one-offs, you can always do events.channel('events-clock').write({ event: 'time', data: '...' })
+  timeEvents.pipe(events.channel('clock'))
+  // for one-offs, you can always do events.channel('clock').write({ event: 'time', data: '...' })
   const app = express()
     .use(require('morgan')('tiny'))
     .use('/events/', expressEventStream.express({ events, grip }))
@@ -54,7 +54,7 @@ function createDemoApplication ({ eventsUrl, grip }) {
     })
     .post('/messages/', (req, res, next) => {
       req.pipe(concat((reqBody) => {
-        events.channel('events-messages').write({
+        events.channel('messages').write({
           event: 'message',
           data: reqBody.toString()
         })
