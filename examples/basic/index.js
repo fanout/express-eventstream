@@ -2,21 +2,41 @@ const express = require('express')
 const expressEventStream = require('express-eventstream')
 const http = require('http')
 const renderIndexHtml = require('./templates/index.html')
-const { PassThrough } = require('stream')
+const { Readable } = require('stream')
 const path = require('path')
 
-if (require.main === module) {
-  process.on('unhandledRejection', (err, p) => {
-    console.error('unhandledRejection', p.ben, p, err)
-    process.exit(1)
+function ClockEvents ({ interval = 1000 } = {}) {
+  let started = false
+  return new Readable({
+    objectMode: true,
+    read () {
+      if (started) return
+      setInterval(() => this.push({
+        event: 'time',
+        data: (new Date()).toISOString()
+      }), interval)
+      started = true
+    }
   })
-  main()
-    .then(() => process.exit(0))
-    .catch(err => {
-      console.error('main() error. shutting down')
-      console.trace(err)
-      process.exit(1)
+}
+
+function createDemoApplication ({ eventsUrl, grip }) {
+  const clockEvents = ClockEvents({ interval: 5 * 1000 })
+  const events = expressEventStream.events({ grip })
+  clockEvents.pipe(events.channel('events-clock'))
+  const app = express()
+    .use(require('morgan')('tiny'))
+    .use('/events/', expressEventStream.express({ events, grip }))
+    .get('/', (req, res) => {
+      res.format({
+        html: () => res.send(renderIndexHtml({
+          elementsUrl: '/elements',
+          eventsUrl: req.query.eventsUrl || eventsUrl || '/events/'
+        }))
+      })
     })
+    .use(express.static(path.join(__dirname, '/public')))
+  return app
 }
 
 /**
@@ -24,7 +44,7 @@ if (require.main === module) {
  */
 function main () {
   const app = createDemoApplication({
-    eventsUrl: process.env.GRIP_URL,
+    eventsUrl: process.env.GRIP_URL || '/events/?channel=all',
     grip: {
       key: process.env.GRIP_KEY || 'changeme', // 'changeme' is the default key that ships with local pushpin
       controlUri: process.env.GRIP_CONTROL_URI || 'http://localhost:5561' // defaults to local pushpin
@@ -47,32 +67,16 @@ function main () {
   })
 }
 
-function createDemoApplication ({ eventsUrl, grip }) {
-  const router = express.Router()
-  router.route('/')
-    .get((req, res) => {
-      res.format({
-        html: () => res.send(renderIndexHtml({
-          elementsUrl: '/elements',
-          eventsUrl: req.query.eventsUrl || eventsUrl || '/events/'
-        }))
-      })
+if (require.main === module) {
+  process.on('unhandledRejection', (err, p) => {
+    console.error('unhandledRejection', p.ben, p, err)
+    process.exit(1)
+  })
+  main()
+    .then(() => process.exit(0))
+    .catch(err => {
+      console.error('main() error. shutting down')
+      console.trace(err)
+      process.exit(1)
     })
-
-  const events = new PassThrough({ objectMode: true })
-  // TODO: publish on 'clock' channel
-  setInterval(() => {
-    events.write({
-      event: 'time',
-      data: (new Date()).toISOString()
-    })
-  }, 1000 * 3)
-
-  const app = express()
-    .use(require('morgan')('tiny'))
-    .use('/events/', expressEventStream.createMiddleware({ events, grip }))
-    .use(express.static(path.join(__dirname, '/public')))
-    .use(router)
-
-  return app
 }

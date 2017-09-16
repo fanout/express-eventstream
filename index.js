@@ -1,6 +1,74 @@
-const grip = require('grip')
-const { PassThrough, Transform, Writable } = require('stream')
+const gripLib = require('grip')
+const { Readable, PassThrough, Transform, Writable } = require('stream')
 const debug = require('debug')('express-eventstream')
+const { EventEmitter } = require('events')
+/**
+ * Represents an application's events, which can be published across one or more logical channels
+ */
+exports.events = ({ grip = {}, gripPubControl } = {}) => {
+  if (!grip.controlUri) {
+    console.warn('Will not be able to publish to gripPubControl with falsy uri: ', grip.controlUri)
+  }
+  gripPubControl = gripPubControl || new gripLib.GripPubControl({
+    control_uri: grip.controlUri,
+    key: grip.key
+  })
+  return Events({ gripPubControl })
+}
+
+function Events ({ gripPubControl }) {
+  // all events written to all channels as { channel, event } objects
+  let addressedEvents = new EventEmitter().on('addressedEvent', (ae) => debug('express-eventstream event', ae))
+  return {
+    /**
+     * Return a Writable that represents a Channel.
+     * Write event objects to it to publish to that channel
+     */
+    channel (channelName) {
+      const pubControlWritable = new GripPubControlWritable(gripPubControl, channelName, { retryWait: 5000 })
+        .on('error', (error) => {
+          console.log('pubControlWritable error (does removing this cause unhandledRejection', error.name)
+          throw error
+        })
+        .on('grip:published', ({ event, channel }) => debug('published to gripPubControl', channel, event))
+
+      const channel = new Writable({
+        objectMode: true,
+        write (event, encoding, callback) {
+          addressedEvents.emit('addressedEvent', { event, channel: channelName })
+          // still give backpressure to anyone piping to this
+          if (pubControlWritable.write(event)) {
+            callback()
+          } else {
+            pubControlWritable.on('drain', callback)
+          }
+        }
+      })
+
+      return channel
+    },
+    /** 
+     * Create a readable that will emit { channel, event } objects for any published events
+     */
+    createAddressedEventsReadable () {
+      let listening = false
+      let listener = addressedEvent => readable.push(addressedEvent)
+      const readable = new Readable({
+        objectMode: true,
+        read () {
+          if (listening) return
+          addressedEvents.on('addressedEvent', listener)
+          listening = true
+        },
+        destroy () {
+          if (listening) addressedEvents.removeListener('addressedEvent', listener)
+          listening = false
+        }
+      })
+      return readable
+    }
+  }
+}
 
 /**
  * @TODO (bengo) jsdoc all the things, ensure passes eslint
@@ -35,14 +103,19 @@ const textEventStream = {
   }
 }
 
-let encoderId = 0
+/**
+ * Transform stream that encodes written event objects to text/event-stream text
+ */
 class ServerSentEventEncoder extends Transform {
   constructor () {
     super({ writableObjectMode: true })
-    this._id = String(encoderId++)
   }
   _transform (event, encoding, callback) {
-    this.push(textEventStream.event(Object.assign({ encoder: this._id }, event)))
+    try {
+      this.push(textEventStream.event(event))
+    } catch (error) {
+      return callback(error)
+    }
     callback()
   }
 }
@@ -75,7 +148,6 @@ class GripPubControlWritable extends Writable {
     super({
       objectMode: true,
       write (event, encoding, callback) {
-        console.log('GripPubControlWritable write()', event)
         const sseEncodedEvent = textEventStream.event(event)
         let publish = (channel, content) => {
           return new Promise((resolve, reject) => {
@@ -138,58 +210,44 @@ function pipeWithErrors () { // eslint-disable-line no-unused-vars
   return dest
 }
 
+class AddressedEventFilter extends Transform {
+  constructor ({ channels = [] } = {}) {
+    super({
+      objectMode: true,
+      transform (addressedEvent, encoding, callback) {
+        if (channels.includes(addressedEvent.channel)) {
+          this.push(addressedEvent.event)
+        } else {
+          debug('AddressedEventFilter not pushing along event because didnt match filter', addressedEvent, {filter: { channels }})
+        }
+        callback()
+      }
+    })
+  }
+}
+
 /**
  * Create an express middleware for an EventStream.
  * The middleware will respond to HTTP requests from Pushpin in order to
  * deliver any Events written to the EventStream
- * @param {stream.Readable} options.events - stream of Event objects that will be sent to users
+ * @param {expressEventStream.Events} options.events - stream of Event objects that will be sent to users
  * @param {Object} options.grip - Grip options
  * @param {String} options.grip.key - secret key that will be used to validate Grip-Sig headers
  * @param {String} options.grip.controlUri - URI of Control Plane server that will be used to publish events when using GRIP
  */
-exports.createMiddleware = function (options = {}) {
+exports.express = function (options = {}) {
   options = Object.assign({ grip: {} }, options)
-  const controlUri = options.grip.controlUri
-  if (!controlUri) {
-    console.warn('Will not be able to publish to gripPubControl with falsy uri: ', controlUri)
-  }
-  const gripPubControlOptions = {
-    control_uri: controlUri,
-    key: options.grip.key
-  }
-  const gripPubControl = options.gripPubControl || new grip.GripPubControl(gripPubControlOptions)
-  const encodedEventStream = new ServerSentEventEncoder()
-  const publishChannel = 'events-all'
-  const pubControlWritable = new GripPubControlWritable(gripPubControl, publishChannel, { retryWait: 5000 })
-    .on('error', (error) => {
-      console.log('pubControlWritable error (does removing this cause unhandledRejection', error.name)
-      throw error
-    })
-    .on('grip:published', ({ event, channel }) => debug('published to gripPubControl', channel, event))
-  // buffer of events that should be sent to responses, pushpin
-  const events = new PassThrough({ objectMode: true })
-
-  // buffer for those going to pub control over HTTP requests
-  const eventsForPubControl = new PassThrough({ objectMode: true })
-  // pipeWithErrors(events, eventsForPubControl, pubControlWritable)
-  events
-    .pipe(eventsForPubControl)
-    .pipe(pubControlWritable)
-
-  // separate PassThrough here so buffering occurs here and pubcontrol stream gets events as fast as possible
-  const eventsForHttpResponses = new PassThrough({ objectMode: true })
-  events.pipe(eventsForHttpResponses).pipe(encodedEventStream)
 
   // start pumping from the 'appEvents' provided by the user of this lib
   const appEvents = options.events
-  if (appEvents && appEvents.pipe) {
-    appEvents.pipe(events)
-      .on('unpipe', (src) => {
-        console.log('events unpipe - repiping')
-        src.pipe(pubControlWritable)
-      })
+  // should emit { channel, event } objects
+  const addressedEvents = new PassThrough({ objectMode: true })
+
+  if (appEvents.createAddressedEventsReadable) {
+    appEvents.createAddressedEventsReadable().pipe(addressedEvents)
   } else {
-    console.warn('No events will flow because none provided via options.events')
+    if (appEvents) throw new Error('Unexpected value of options.events')
+    else console.warn('No events will flow because none provided via options.events')
   }
 
   let nextMessageId = 0
@@ -197,7 +255,7 @@ exports.createMiddleware = function (options = {}) {
     const gripRequest = gripRequestFromHttp(req)
 
     // validate sig
-    if (gripRequest && gripRequest.sig && !grip.validateSig(gripRequest.sig, options.grip.key)) {
+    if (gripRequest && gripRequest.sig && !gripLib.validateSig(gripRequest.sig, options.grip.key)) {
       throw new GripSigInvalidError('Grip-Sig invalid')
     }
 
@@ -210,6 +268,7 @@ exports.createMiddleware = function (options = {}) {
 
     // prefix with 'events-' for pushpin to isolate from other apps' using same pushpin
     const pushpinChannels = channels.map(c => `events-${c}`)
+    const filteredAppEvents = addressedEvents.pipe(new AddressedEventFilter({ channels }))
 
     const initialEvents = []
 
@@ -232,7 +291,7 @@ exports.createMiddleware = function (options = {}) {
 
         if (gripRequest) {
           res.setHeader('Grip-Hold', 'stream')
-          res.setHeader('Grip-Channel', grip.createGripChannelHeader(pushpinChannels.map(c => new grip.Channel(c))))
+          res.setHeader('Grip-Channel', gripLib.createGripChannelHeader(pushpinChannels.map(c => new gripLib.Channel(c))))
           // stringify to escale newlines into '\n'
           const keepAliveHeaderValue = [
             textEventStream.event({
@@ -263,9 +322,11 @@ exports.createMiddleware = function (options = {}) {
         // @TODO (bengo) all responses will only go as fast as the slowest response socket. Might be good to use something like
         // npm.im/fastest-writable to drop slow connections (who could recover via lastEventId) (https://stackoverflow.com/a/33879208 might also be useful)
         debug('piping encoded to res')
-        encodedEventStream
-          .pipe(res.on('finish', () => debug('response finish (no more writes)'))
-            .on('close', () => debug('response close')))
+        filteredAppEvents
+          .pipe(new ServerSentEventEncoder())
+          .pipe(res)
+          .on('finish', () => debug('response finish (no more writes)'))
+          .on('close', () => debug('response close'))
       },
       'default': () => res.status(406).send('Not Acceptable')
     })
@@ -320,7 +381,10 @@ function protocolErrorHandler (handler) {
  * Default implementation. An alternative can be provided on createMiddleware()
  */
 function createEventRequestFromHttp (req) {
-  const channels = req.query.channel
+  let channels = req.query.channel
+  if (!Array.isArray(channels)) {
+    channels = [channels]
+  }
   return { channels }
 }
 
