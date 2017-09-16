@@ -324,7 +324,6 @@ exports.express = function (options = {}) {
     }
 
     // prefix with appEvents.prefix for pushpin to isolate from other apps' using same pushpin
-    console.log('channels', channels, eventRequest)
     const filteredAppEvents = addressedEvents.pipe(new AddressedEventFilter({ channels }))
     const prefixedChannels = channels.map(c => `${appEvents.prefix}${c}`)
     const initialEvents = []
