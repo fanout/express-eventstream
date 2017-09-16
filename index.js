@@ -30,7 +30,7 @@ exports.events = ({ grip, gripPubControl } = {}) => {
  * @returns {Events}
  */
 function Events ({ gripPubControl }) {
-  if ( ! gripPubControl) debug('Events will not publish to grip because no gripPubControl', gripPubControl)
+  if (!gripPubControl) debug('Events will not publish to grip because no gripPubControl', gripPubControl)
   // all events written to all channels as { channel, event } objects
   let addressedEvents = new EventEmitter().on('addressedEvent', (ae) => debug('express-eventstream event', ae))
   /*
@@ -57,7 +57,7 @@ function Events ({ gripPubControl }) {
         objectMode: true,
         write (event, encoding, callback) {
           addressedEvents.emit('addressedEvent', { event, channel: channelName })
-          if ( ! pubControlWritable) {
+          if (!pubControlWritable) {
             return callback()
           }
           // still give backpressure to anyone piping to this
