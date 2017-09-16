@@ -16,13 +16,14 @@ These endpoints are also [GRIP-aware](pushpin.org/docs/protocols/grip/), so they
 
 1. Create an `events` object, with optional GRIP configuration
 
-    ```
-   const expressEventStream = require('express-event-stream')
-   const grip = {
-    controlUri: process.env.GRIP_CONTROL_URI || 'http://localhost:5561',
-    key: process.env.GRIP_KEY || 'changeme'
-   };
-   const events = expressEventStream.events({ grip })
+    ```  
+    // server.js
+    const expressEventStream = require('express-event-stream')
+    const grip = {
+      controlUri: process.env.GRIP_CONTROL_URI || 'http://localhost:5561',
+      key: process.env.GRIP_KEY || 'changeme'
+    };
+    const events = expressEventStream.events({ grip })
     ```
 
 2. Create and mount the express handler wherever you want
@@ -47,6 +48,20 @@ These endpoints are also [GRIP-aware](pushpin.org/docs/protocols/grip/), so they
     ```
 
     **Note**: If you're not using GRIP, and your application has several processes running, published events will only go to HTTP Connections on the process that publishes the message. Use [Pushpin](http://pushpin.org/) + [GRIP](http://pushpin.org/docs/protocols/grip/) or [fanout.io](https://fanout.io/) or a dedicated publishing process to scale to more than one web server process.
+
+4. Stream events to your web client using [EventSource](https://developer.mozilla.org/en-US/docs/Web/API/EventSource)
+
+    ```
+    // client.js
+    var eventSrc = new EventSource('/events/?channel=messages')
+      .addEventListener('message', function (event) {
+        console.log('message is', event.data)
+      })
+      .addEventListener('stream-error', function (event) {
+        console.error('stream-error', event)
+        this.close()
+      })
+    ```
 
 ## Protocol
 
