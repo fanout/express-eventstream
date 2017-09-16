@@ -6,15 +6,57 @@ These endpoints speak [server-sent events (SSE)](https://en.wikipedia.org/wiki/S
 
 These endpoints are also [GRIP-aware](pushpin.org/docs/protocols/grip/), so they can be used with [Pushpin](http://pushpin.org/) or the [Fanout.io cloud service](https://fanout.io/) to easily scale out your real-time APIs.
 
+## Examples
+
+* [basic](./examples/basic/) - Publishes 'time' events every second on the 'clock' channel, and a web ui to show connection status, connection log, and event log
+
 ## Getting Started
 
 * If using pushpin locally, remember to enable "Auto Cross Origin" by adding the `aco` parameter to your routes config file
 
+1. Create an `events` object, with optional GRIP configuration
+
+    ```
+   const expressEventStream = require('express-event-stream')
+   const grip = {
+    controlUri: process.env.GRIP_CONTROL_URI || 'http://localhost:5561',
+    key: process.env.GRIP_KEY || 'changeme'
+   };
+   const events = expressEventStream.events({ grip })
+    ```
+
+2. Create and mount the express handler wherever you want
+
+    ```
+    const yourApp = require('express')()
+    const yourApp.get('/events/', expressEventStream.express({ events, grip })
+    ```
+
+3. Publish events throughout your app
+
+    ```
+    yourApp.post('/messages/', (req, res, next) => {
+      req.pipe(require('concat-stream')((reqBody) => {
+        events.channel('events-messages').write({
+          event: 'message',
+          data: reqBody.toString()
+        })
+        res.status(201).end()
+      }))
+    })
+    ```
+
+    **Note**: If you're not using GRIP, and your application has several processes running, published events will only go to HTTP Connections on the process that publishes the message. Use [Pushpin](http://pushpin.org/) + [GRIP](http://pushpin.org/docs/protocols/grip/) or [fanout.io](https://fanout.io/) or a dedicated publishing process to scale to more than one web server process.
+
 ## Protocol
+
+The express handler created via `.express()` behaves as follows.
 
 ### Request
 
-Make a request to your endpoint (you decide the path to mount it on) over HTTP. The endpoint will interpret the following querystring parameters:
+Make a request to your endpoint (you decide the path to mount it on) over HTTP with the 'Accept: text/event-stream' header.
+
+The endpoint will interpret the following querystring parameters:
 
 * channel - Which channels you'd like to subscribe to events from.
   * If using pushpin, the corresponding pushpin channel names will all be prefixed with 'events-'. So if you provide '?channel=clock&channel=public', the underlying pushpin channels will be 'events-clock' and 'events-public'.
