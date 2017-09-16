@@ -1,5 +1,6 @@
 /* eslint require-jsdoc: "warn" */
 /* eslint valid-jsdoc: ["warn", { "requireReturnDescription": false }] */
+const concat = require('concat-stream')
 const express = require('express')
 const expressEventStream = require('express-eventstream')
 const http = require('http')
@@ -50,6 +51,15 @@ function createDemoApplication ({ eventsUrl, grip }) {
           eventsUrl: req.query.eventsUrl || eventsUrl || '/events/'
         }))
       })
+    })
+    .post('/messages/', (req, res, next) => {
+      req.pipe(concat((reqBody) => {
+        events.channel('events-messages').write({
+          event: 'message',
+          data: reqBody.toString()
+        })
+        res.status(201).end()
+      }))
     })
     .use(express.static(path.join(__dirname, '/public')))
   return app
