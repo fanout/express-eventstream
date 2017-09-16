@@ -12,14 +12,16 @@ const { EventEmitter } = require('events')
  * @param {String} grip.controlUri - URI of Control Plane server that will be used to publish events when using GRIP
  * @returns {Events} object your application can publish events to
  */
-exports.events = ({ grip = {}, gripPubControl } = {}) => {
-  if (!grip.controlUri) {
-    console.warn('Will not be able to publish to gripPubControl with falsy uri: ', grip.controlUri)
+exports.events = ({ grip, gripPubControl } = {}) => {
+  if (!gripPubControl && grip) {
+    if (!grip.controlUri) {
+      console.warn('Will not be able to publish to gripPubControl with falsy uri: ', grip.controlUri)
+    }
+    gripPubControl = new gripLib.GripPubControl({
+      control_uri: grip.controlUri,
+      key: grip.key
+    })
   }
-  gripPubControl = gripPubControl || new gripLib.GripPubControl({
-    control_uri: grip.controlUri,
-    key: grip.key
-  })
   return Events({ gripPubControl })
 }
 
@@ -28,6 +30,7 @@ exports.events = ({ grip = {}, gripPubControl } = {}) => {
  * @returns {Events}
  */
 function Events ({ gripPubControl }) {
+  if ( ! gripPubControl) debug('Events will not publish to grip because no gripPubControl', gripPubControl)
   // all events written to all channels as { channel, event } objects
   let addressedEvents = new EventEmitter().on('addressedEvent', (ae) => debug('express-eventstream event', ae))
   /*
@@ -43,7 +46,7 @@ function Events ({ gripPubControl }) {
      * @returns {Writable}
      */
     channel (channelName) {
-      const pubControlWritable = new GripPubControlWritable(gripPubControl, channelName, { retryWait: 5000 })
+      const pubControlWritable = gripPubControl && new GripPubControlWritable(gripPubControl, channelName, { retryWait: 5000 })
         .on('error', (error) => {
           console.log('pubControlWritable error (does removing this cause unhandledRejection', error.name)
           throw error
@@ -54,6 +57,9 @@ function Events ({ gripPubControl }) {
         objectMode: true,
         write (event, encoding, callback) {
           addressedEvents.emit('addressedEvent', { event, channel: channelName })
+          if ( ! pubControlWritable) {
+            return callback()
+          }
           // still give backpressure to anyone piping to this
           if (pubControlWritable.write(event)) {
             callback()
@@ -300,7 +306,7 @@ exports.express = function (options = {}) {
 
   let nextMessageId = 0
   return httpRequestHandler(protocolErrorHandler(async function (req, res, next) {
-    const gripRequest = gripRequestFromHttp(req)
+    const gripRequest = options.grip && gripRequestFromHttp(req)
 
     // validate sig
     if (gripRequest && gripRequest.sig && !gripLib.validateSig(gripRequest.sig, options.grip.key)) {
@@ -316,7 +322,7 @@ exports.express = function (options = {}) {
 
     // prefix with 'events-' for pushpin to isolate from other apps' using same pushpin
     const pushpinChannels = channels.map(c => `events-${c}`)
-    const filteredAppEvents = addressedEvents.pipe(new AddressedEventFilter({ channels }))
+    const filteredAppEvents = addressedEvents.pipe(new AddressedEventFilter({ channels: pushpinChannels }))
 
     const initialEvents = []
 
