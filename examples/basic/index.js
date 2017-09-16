@@ -19,10 +19,12 @@ function TimeEvents ({ interval = 1000 } = {}) {
     objectMode: true,
     read () {
       if (started) return
-      setInterval(() => this.push({
+      const makeTimeEvent = () => ({
         event: 'time',
         data: (new Date()).toISOString()
-      }), interval)
+      })
+      this.push(makeTimeEvent())
+      setInterval(() => this.push(makeTimeEvent()), interval)
       started = true
     }
   })
