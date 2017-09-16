@@ -80,7 +80,7 @@ function main () {
   const server = http.createServer(app)
   const port = process.env.PORT || 0
   return new Promise((resolve, reject) => {
-    process.once('SIGINT', async function () {
+    process.once('SIGINT', function () {
       console.warn('SIGINT: closing server')
       server.close(err => {
         if (err) return reject(err)

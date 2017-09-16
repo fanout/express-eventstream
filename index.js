@@ -115,7 +115,8 @@ const textEventStream = {
       for (let comment of comments) { event += this.commentPrefix + comment + this.newline }
     }
     if (fields) {
-      for (let [field, value] of Object.entries(fields)) {
+      for (let field of Object.keys(fields)) {
+        const value = fields[field]
         event += String(value)
           .split(this.newline)
           .map(chunk => field + ': ' + chunk)
@@ -164,7 +165,8 @@ class ServerSentEventEncoder extends Transform {
  * If the request appears to be from a client that doesn't speak GRIP, return undefined
  */
 function gripRequestFromHttp (req) {
-  const gripRequest = Array.from(Object.entries(req.headers)).reduce((gripRequest, [header, value]) => {
+  const gripRequest = Object.keys(req.headers).reduce((gripRequest, header) => {
+    const value = req.headers[header]
     if (header.toLowerCase().startsWith('grip-')) {
       const key = header.replace(/^Grip-/i, '')
       gripRequest[key] = value
@@ -306,19 +308,19 @@ exports.express = function (options = {}) {
   }
 
   let nextMessageId = 0
-  return httpRequestHandler(protocolErrorHandler(async function (req, res, next) {
+  return httpRequestHandler(protocolErrorHandler(function (req, res, next) {
     const gripRequest = options.grip && gripRequestFromHttp(req)
 
     // validate sig
     if (gripRequest && gripRequest.sig && !gripLib.validateSig(gripRequest.sig, options.grip.key)) {
-      throw new GripSigInvalidError('Grip-Sig invalid')
+      return Promise.reject(new GripSigInvalidError('Grip-Sig invalid'))
     }
 
     const eventRequest = (options.createEventRequestFromHttp || createEventRequestFromHttp)(req)
     const channels = eventRequest.channels
 
     if (!channels || !channels.length) {
-      throw new ExpressEventStreamProtocolError('You must specify one or more channels to subscribe to using one or more ?channel querystring parameters')
+      return Promise.reject(new ExpressEventStreamProtocolError('You must specify one or more channels to subscribe to using one or more ?channel querystring parameters'))
     }
 
     // prefix with appEvents.prefix for pushpin to isolate from other apps' using same pushpin
@@ -423,10 +425,8 @@ const libraryProtocol = {
  * @returns {function} wrapped express http handler
  */
 function protocolErrorHandler (handler) {
-  return async function (req, res, next) {
-    try {
-      await handler(req, res, next)
-    } catch (error) {
+  return function (req, res, next) {
+    return Promise.resolve(handler(req, res, next)).catch(error => {
       if (error instanceof ExpressEventStreamProtocolError) {
         debug('ExpressEventStreamProtocolError', error.name, error.message)
         const message = 'Bad Request: ' + error.message
@@ -442,11 +442,10 @@ function protocolErrorHandler (handler) {
             res.status(400).send(message)
           }
         })
-
         return
       }
       throw error
-    }
+    })
   }
 }
 
@@ -483,18 +482,17 @@ function createEventRequestFromHttp (req) {
  * @returns {function} wrapped express http request handler
  */
 function httpRequestHandler (handleRequest) {
-  return async (req, res, next) => {
+  return (req, res, next) => {
     let calledNext = false
     let nextForExpress = (...args) => {
       calledNext = true
       next(...args)
     }
-    try {
-      await handleRequest(req, res, nextForExpress)
-    } catch (error) {
-      return nextForExpress(error)
-    }
-    if (!calledNext) nextForExpress()
+    handleRequest(req, res, nextForExpress)
+      .catch(nextForExpress)
+      .then(() => {
+        if (!calledNext) nextForExpress()
+      })
   }
 }
 
