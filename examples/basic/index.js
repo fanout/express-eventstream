@@ -1,3 +1,5 @@
+/* eslint require-jsdoc: "warn" */
+/* eslint valid-jsdoc: ["warn", { "requireReturnDescription": false }] */
 const express = require('express')
 const expressEventStream = require('express-eventstream')
 const http = require('http')
@@ -5,7 +7,12 @@ const renderIndexHtml = require('./templates/index.html')
 const { Readable } = require('stream')
 const path = require('path')
 
-function ClockEvents ({ interval = 1000 } = {}) {
+/**
+ * Create a stream of time events
+ * @param {Number} interval - milliseconds to wait between each event
+ * @returns {Readable}
+ */
+function TimeEvents ({ interval = 1000 } = {}) {
   let started = false
   return new Readable({
     objectMode: true,
@@ -20,10 +27,19 @@ function ClockEvents ({ interval = 1000 } = {}) {
   })
 }
 
+/**
+ * Create an express application to power this demo
+ * @param {String} eventsUrl - where the demo ui should connect its EventSource
+ * @param {Object} grip - grip options
+ * @param {String} grip.key - secret key that will be used to validate Grip-Sig headers
+ * @param {String} grip.controlUri - URI of Control Plane server that will be used to publish events when using GRIP * @returns {express}
+ * @returns {express.Application}
+ */
 function createDemoApplication ({ eventsUrl, grip }) {
-  const clockEvents = ClockEvents({ interval: 5 * 1000 })
+  const timeEvents = TimeEvents({ interval: 5 * 1000 })
   const events = expressEventStream.events({ grip })
-  clockEvents.pipe(events.channel('events-clock'))
+  timeEvents.pipe(events.channel('events-clock'))
+  // for one-offs, you can always do events.channel('events-clock').write({ event: 'time', data: '...' })
   const app = express()
     .use(require('morgan')('tiny'))
     .use('/events/', expressEventStream.express({ events, grip }))
@@ -40,7 +56,8 @@ function createDemoApplication ({ eventsUrl, grip }) {
 }
 
 /**
- * Create a web server and have it start listening
+ * Create a web server and have it start listening.
+ * @returns {Promise} promise of the server shutting down successfully
  */
 function main () {
   const app = createDemoApplication({

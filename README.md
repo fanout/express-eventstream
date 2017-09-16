@@ -23,5 +23,7 @@ Make a request to your endpoint (you decide the path to mount it on) over HTTP. 
 
 express-eventstream endpoints respond with text/event-stream responses. The Events in this Stream are one of a few predefined types, plus any others that you instruct it to publish. All of these events are prefixed with 'stream-', so consider using another prefix for your application's events.
 
+If a 'data' field is present on these events, it will be a JSON-encoded string.
+
 * stream-open - Sent whenever the endpoint starts sending SSE on a fresh HTTP Connection.
 * stream-error - The endpoint could not understand what events are being requested. The client should not reconnect.

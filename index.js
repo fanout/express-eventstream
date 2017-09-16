@@ -1,9 +1,16 @@
+/* eslint require-jsdoc: "warn" */
+/* eslint valid-jsdoc: ["warn", { "requireReturnDescription": false }] */
 const gripLib = require('grip')
 const { Readable, PassThrough, Transform, Writable } = require('stream')
 const debug = require('debug')('express-eventstream')
 const { EventEmitter } = require('events')
+
 /**
  * Represents an application's events, which can be published across one or more logical channels
+ * @param {Object} grip - Grip options
+ * @param {String} grip.key - secret key that will be used to validate Grip-Sig headers
+ * @param {String} grip.controlUri - URI of Control Plane server that will be used to publish events when using GRIP
+ * @returns {Events} object your application can publish events to
  */
 exports.events = ({ grip = {}, gripPubControl } = {}) => {
   if (!grip.controlUri) {
@@ -16,13 +23,24 @@ exports.events = ({ grip = {}, gripPubControl } = {}) => {
   return Events({ gripPubControl })
 }
 
+/**
+ * An application's events, which can be published across one or more channels
+ * @returns {Events}
+ */
 function Events ({ gripPubControl }) {
   // all events written to all channels as { channel, event } objects
   let addressedEvents = new EventEmitter().on('addressedEvent', (ae) => debug('express-eventstream event', ae))
+  /*
+   * @typedef Events
+   * @type {Object}
+   * @property {function} channel
+   * @property {function} createAddressedEventsReadable
+   */
   return {
     /**
-     * Return a Writable that represents a Channel.
-     * Write event objects to it to publish to that channel
+     * Return a Writable that represents a Channel. Write event objects to it to publish to that channel.
+     * @param {String} channelName - name of channel that written events will be published to
+     * @returns {Writable}
      */
     channel (channelName) {
       const pubControlWritable = new GripPubControlWritable(gripPubControl, channelName, { retryWait: 5000 })
@@ -49,6 +67,7 @@ function Events ({ gripPubControl }) {
     },
     /** 
      * Create a readable that will emit { channel, event } objects for any published events
+     * @returns {Readable}
      */
     createAddressedEventsReadable () {
       let listening = false
@@ -71,36 +90,46 @@ function Events ({ gripPubControl }) {
 }
 
 /**
- * @TODO (bengo) jsdoc all the things, ensure passes eslint
+ * tools for encoding objects to text/event-stream strings
+ * https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events#Event_stream_format
  */
-
-// "A colon as the first character of a line is in essence a comment, and is ignored."
-// https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events#Event_stream_format
-const textEventStreamCommentPrefix = ':'
-const newline = '\n'
 const textEventStream = {
-  event: (fields, comments) => {
+  /**
+   * encode an event
+   * @param {Object} fields - Fields the events hould have, e.g. { data: 'foo' }
+   * @param {Array<String>} comments - Any comments the event should have. They will be ignored by most clients.
+   * Comments are printed before fields
+   * @returns {String} text/event-stream encoded event
+   */
+  event (fields, comments) {
     let event = ''
     if (comments) {
       if (!Array.isArray(comments)) comments = [comments]
-      for (let comment of comments) { event += textEventStreamCommentPrefix + comment + newline }
+      for (let comment of comments) { event += this.commentPrefix + comment + this.newline }
     }
     if (fields) {
       for (let [field, value] of Object.entries(fields)) {
         event += String(value)
-          .split(newline)
+          .split(this.newline)
           .map(chunk => field + ': ' + chunk)
-          .join(newline)
-        event += newline
+          .join(this.newline)
+        event += this.newline
       }
     }
-    event += newline
+    event += this.newline
     return event
   },
-  stream: (events) => {
+  /**
+   * encode one or more events into a stream
+   * @param {(Object|Array<Object>)} events - events to encode
+   * @returns {String} text/event-stream encoded stream
+   */
+  stream (events) {
     if (!Array.isArray(events)) events = [events]
     return events.join('\n\n') + '\n\n'
-  }
+  },
+  commentPrefix: ':',
+  newline: '\n'
 }
 
 /**
@@ -124,6 +153,8 @@ class ServerSentEventEncoder extends Transform {
  * given an http request, return an object with any grip-specific instructions (by parsing headers)
  * If there is no sign of the client speaking grip, return falsy
  * @param {http.IncomingMessage} req - http request
+ * @returns {(Object|null)} grip request with keys like grip headers, but with 'Grip-' stripped.
+ * If the request appears to be from a client that doesn't speak GRIP, return undefined
  */
 function gripRequestFromHttp (req) {
   const gripRequest = Array.from(Object.entries(req.headers)).reduce((gripRequest, [header, value]) => {
@@ -135,7 +166,7 @@ function gripRequestFromHttp (req) {
   }, {})
   if (!Object.keys(gripRequest).length) {
     // was not grippy
-    return
+    return null
   }
   return gripRequest
 }
@@ -144,6 +175,12 @@ function gripRequestFromHttp (req) {
  * Writable stream that publishes written events to a Grip Control Publish endpoint
  */
 class GripPubControlWritable extends Writable {
+  /**
+   * @param {gripLib.GripPubControl} gripPubControl - configured GripPubControl used to publish content
+   * @param {string} channel - name of channel to publish to
+   * @param {(Number|Boolean)} retryWait - if truthy, number of milliseconds to wait before retrying failed publish attempts.
+   * If falsy, there will be no retrying and the writable will emit an error
+   */
   constructor (gripPubControl, channel, { retryWait = 5000 } = {}) {
     super({
       objectMode: true,
@@ -161,7 +198,6 @@ class GripPubControlWritable extends Writable {
             })
           })
         }
-
         if (retryWait) {
           publish = retry(publish, {
             wait: retryWait,
@@ -170,7 +206,6 @@ class GripPubControlWritable extends Writable {
             }
           })
         }
-
         publish(channel, sseEncodedEvent)
           .catch(callback)
           .then(() => {
@@ -181,9 +216,13 @@ class GripPubControlWritable extends Writable {
   }
 }
 
-// if provided `doWork` function fails, retry until it succeeds
-// waiting `wait`ms before trying again
-// `onError` will be called on each failure
+/**
+ * wrap a function such that it retries until it doesn't error
+ * @param {function} doWork - function to wrap
+ * @param {Number} wait - wait this many milliseconds between tries
+ * @param {function} onError - will be called on each failure with error
+ * @returns {function} function with same signature as doWork, but retries
+ */
 function retry (doWork, { wait = 1, onError } = {}) {
   return (...args) => new Promise((resolve, reject) => {
     const tryIt = () => {
@@ -196,6 +235,12 @@ function retry (doWork, { wait = 1, onError } = {}) {
   })
 }
 
+/**
+ * Pipe streams together, but propogate errors downstream
+ * http://grokbase.com/t/gg/nodejs/12bwd4zm4x/should-stream-pipe-forward-errors
+ * @param {...Stream} var_args - streams to pipe together
+ * @returns {Writable} the last stream
+ */
 function pipeWithErrors () { // eslint-disable-line no-unused-vars 
   let [src, ...streams] = Array.prototype.slice.call(arguments)
   let dest
@@ -228,12 +273,15 @@ class AddressedEventFilter extends Transform {
 
 /**
  * Create an express middleware for an EventStream.
- * The middleware will respond to HTTP requests from Pushpin in order to
- * deliver any Events written to the EventStream
- * @param {expressEventStream.Events} options.events - stream of Event objects that will be sent to users
+ * The middleware will respond to HTTP requests from Pushpin in order to deliver any Events written to the EventStream.
+ * If the request does not speak GRIP, it will stream application events over HTTP Chunked
+ * If the request does speak GRIP, it is assumed that you will publish events separately. Only 'stream-open' event will be sent here.
+ * @param {Object} options - options
+ * @param {Events} options.events - events from your application. They will be filtered for each request based on which channels are subscribed to via ?channel query param
  * @param {Object} options.grip - Grip options
  * @param {String} options.grip.key - secret key that will be used to validate Grip-Sig headers
  * @param {String} options.grip.controlUri - URI of Control Plane server that will be used to publish events when using GRIP
+ * @returns {function} express http handler
  */
 exports.express = function (options = {}) {
   options = Object.assign({ grip: {} }, options)
@@ -333,20 +381,40 @@ exports.express = function (options = {}) {
   }))
 }
 
-// create events for the 'stream-*' events that are specific
-// to this library
+/**
+ * create event objects for the 'stream-*' event types that are specific to how this library signals connection status
+ */
 const libraryProtocol = {
+  /**
+   * Create an event. It's properties will be such that it is also compatible with textEventStream.event.
+   * @param {String} type - event type
+   * @param {*} [data] - data to go along with event.
+   * @param {String} [id] - event id 
+   * @returns {Object}
+   */
   event: (type, data, id) => Object.assign(
     { event: type },
     id && { id },
     data && { data: JSON.stringify(data) }
   ),
+  /**
+   * Create an error event (type will be stream-error)
+   * @param {String} condition - code-readable error condition, e.g. 'bad-request'
+   * @param {String} text - human readable error message, e.g. 'Bad Request'
+   * @returns {Object}
+   */
   errorEvent: function (condition, text) {
     const data = { condition, text }
     return this.event('stream-error', data, 'error')
   }
 }
 
+/**
+ * Wrap an express http handler to catch common ExpressEventStreamProtocolErrors and
+ * properly respond to the http request.
+ * @param {function} handler - express http handler
+ * @returns {function} wrapped express http handler
+ */
 function protocolErrorHandler (handler) {
   return async function (req, res, next) {
     try {
@@ -379,22 +447,34 @@ function protocolErrorHandler (handler) {
  * Create an EventRequest from an express http request.
  * An EventRequest specifies what types of events a client wants.
  * Default implementation. An alternative can be provided on createMiddleware()
+ * @param {http.IncomingMessage} req - http request
+ * @returns {EventRequest}
  */
 function createEventRequestFromHttp (req) {
   let channels = req.query.channel
   if (!Array.isArray(channels)) {
     channels = [channels]
   }
+  /*
+   * @typedef EventRequest
+   * @type {Object}
+   * @property {Array<String>} channels - Channels that the requestor would like to subscribe to
+   */
   return { channels }
 }
 
-/*
-Wrap an async function and return an Express http handler
-usage:
-  express().get('/route', httpRequestHandler(async (req, res, next) => {
-    throw 'thrown errors will get sent to next()'
-  }))
-*/
+/**
+ * Wrap an express handler such that the handler can return a promise.
+ * If the promise is rejected, the error will be passed to express' next() function
+ * If the promise is resolved, next() will be called with no error, so future middlewares are called
+ * If not promise is returned, success is assumed, and next() will be called with no error.
+ * @example
+ * express().get('/route', httpRequestHandler(async (req, res, next) => {
+ *   throw 'thrown errors will get sent to next()'
+ * }))
+ * @param {function} handleRequest - express http handler that can return a promise
+ * @returns {function} wrapped express http request handler
+ */
 function httpRequestHandler (handleRequest) {
   return async (req, res, next) => {
     let calledNext = false
