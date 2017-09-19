@@ -18,7 +18,7 @@ These endpoints are also [GRIP-aware](pushpin.org/docs/protocols/grip/), so they
 
     ```  
     // server.js
-    const expressEventStream = require('express-event-stream')
+    const expressEventStream = require('express-eventstream')
     const grip = {
       controlUri: process.env.GRIP_CONTROL_URI || 'http://localhost:5561',
       key: process.env.GRIP_KEY || 'changeme'
