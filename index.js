@@ -4,25 +4,40 @@ const gripLib = require('grip')
 const { Readable, PassThrough, Transform, Writable } = require('stream')
 const debug = require('debug')('express-eventstream')
 const { EventEmitter } = require('events')
+const url = require('url')
 
 /**
  * Represents an application's events, which can be published across one or more logical channels
- * @param {Object} grip - Grip options
+ * @param {Object|String} grip - Grip options or GRIP_URL
  * @param {String} grip.key - secret key that will be used to validate Grip-Sig headers
  * @param {String} grip.controlUri - URI of Control Plane server that will be used to publish events when using GRIP
  * @returns {Events} object your application can publish events to
  */
-exports.events = ({ grip, gripPubControl, prefix='events-' } = {}) => {
+exports.events = ({ grip, gripPubControl, prefix = 'events-' } = {}) => {
+  if (typeof grip === 'string') grip = parseGripUrl(grip)
   if (!gripPubControl && grip) {
     if (!grip.controlUri) {
       console.warn('Will not be able to publish to gripPubControl with falsy uri: ', grip.controlUri)
     }
     gripPubControl = new gripLib.GripPubControl({
-      control_uri: grip.controlUri,
+      control_uri: grip.controlUri.replace(/\/$/, ''), // https://github.com/fanout/node-pubcontrol/pull/1
       key: grip.key
     })
   }
   return Events({ gripPubControl, prefix })
+}
+
+/**
+ * Parse a GRIP_URL value into a grip options object
+ * @param {String} gripUrl - like http://localhost:5561?key=changeme
+ * @returns {Object} like { controlUri } + any other keys that were in querystring
+ */
+function parseGripUrl (gripUrl) {
+  if (!gripUrl) return
+  const parsedUrl = url.parse(gripUrl, true)
+  const withoutQuery = url.format(Object.assign({}, parsedUrl, { query: {}, search: '' }))
+  const gripOptions = Object.assign({}, parsedUrl.query, { controlUri: withoutQuery })
+  return gripOptions
 }
 
 /**
@@ -293,6 +308,7 @@ class AddressedEventFilter extends Transform {
  * @returns {function} express http handler
  */
 exports.express = function (options = {}) {
+  if (typeof options.grip === 'string') options.grip = parseGripUrl(options.grip)
   options = Object.assign({ grip: {} }, options)
 
   // start pumping from the 'appEvents' provided by the user of this lib
