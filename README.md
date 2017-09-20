@@ -4,7 +4,7 @@ A library to easily create web endpoints that stream events to clients.
 
 These endpoints speak [server-sent events (SSE)](https://en.wikipedia.org/wiki/Server-sent_events), so can be easily consumed in web browsers using [EventSource](https://developer.mozilla.org/en-US/docs/Web/API/EventSource).
 
-These endpoints are also [GRIP-aware](pushpin.org/docs/protocols/grip/), so they can be used with [Pushpin](http://pushpin.org/) or the [Fanout.io cloud service](https://fanout.io/) to easily scale out your real-time APIs.
+These endpoints are also [GRIP-aware](pushpin.org/docs/protocols/grip/), so they can be used with [Pushpin](http://pushpin.org/) or the [Fanout Cloud](https://fanout.io/cloud/) to easily scale out your real-time APIs.
 
 ## Examples
 
@@ -12,7 +12,7 @@ These endpoints are also [GRIP-aware](pushpin.org/docs/protocols/grip/), so they
 
 ## Getting Started
 
-* If using pushpin locally, remember to enable "Auto Cross Origin" by adding the `aco` parameter to your routes config file
+* If using Pushpin locally, remember to enable "Auto Cross Origin" by adding the `aco` parameter to your routes config file
 
 1. Create an `events` object, with optional GRIP configuration
 
@@ -47,7 +47,11 @@ These endpoints are also [GRIP-aware](pushpin.org/docs/protocols/grip/), so they
     })
     ```
 
-    **Note**: If you're not using GRIP, and your application has several processes running, published events will only go to HTTP Connections on the process that publishes the message. Use [Pushpin](http://pushpin.org/) + [GRIP](http://pushpin.org/docs/protocols/grip/) or [fanout.io](https://fanout.io/) or a dedicated publishing process to scale to more than one web server process.
+    **Note**: If you're not using GRIP, and your application has several processes running, published events will only go to HTTP Connections on the process that publishes the message. To scale to more than one web server process, your options include:
+
+    * a single dedicated event-publishing process
+    * [Pushpin](http://pushpin.org/) + [GRIP](http://pushpin.org/docs/protocols/grip/)
+    * [Fanout Cloud](https://fanout.io/cloud/)
 
 4. Stream events to your web client using [EventSource](https://developer.mozilla.org/en-US/docs/Web/API/EventSource)
 
@@ -69,12 +73,10 @@ The express handler created via `.express()` behaves as follows.
 
 ### Request
 
-Make a request to your endpoint (you decide the path to mount it on) over HTTP with the 'Accept: text/event-stream' header.
-
-The endpoint will interpret the following querystring parameters:
+Make an HTTP GET request to your endpoint. You decide the path to mount it on. The endpoint will interpret the following querystring parameters:
 
 * channel - Which channels you'd like to subscribe to events from.
-  * If using pushpin, the corresponding pushpin channel names will all be prefixed with 'events-'. So if you provide '?channel=clock&channel=public', the underlying pushpin channels will be 'events-clock' and 'events-public'. You can change this prefix via `.events({ prefix })`.
+  * If using Pushpin, the corresponding Pushpin channel names will all be prefixed with 'events-'. So if you provide '?channel=clock&channel=public', the underlying Pushpin channels will be 'events-clock' and 'events-public'. You can change this prefix via `.events({ prefix })`.
 
 ### Response
 
