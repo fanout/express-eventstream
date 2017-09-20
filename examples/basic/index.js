@@ -80,13 +80,6 @@ function main () {
   const port = process.env.PORT || 0
   if (!port) console.warn('use PORT environment variable to choose an HTTP port')
   return new Promise((resolve, reject) => {
-    process.once('SIGINT', function () {
-      console.warn('SIGINT: closing server')
-      server.close(err => {
-        if (err) return reject(err)
-        return resolve()
-      })
-    })
     server.listen(port, (err) => {
       if (err) reject(err)
       console.warn(`listening on port ${server.address().port}`)
