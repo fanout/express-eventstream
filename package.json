@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "mocha"
+    "test": "mocha",
+    "lint": "eslint --fix index.js examples/basic/index.js 'examples/basic/{templates,public/elements}/**/*.js'"
   },
   "repository": {
     "type": "git",
