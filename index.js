@@ -331,6 +331,11 @@ exports.express = function (options = {}) {
       return Promise.reject(new GripSigInvalidError('Grip-Sig invalid'))
     }
 
+    const lastEventId = req.headers['last-event-id']
+    if (lastEventId === 'error') {
+      return res.status(400).send(`last-event-id header may not be 'error'`)
+    }
+
     const eventRequest = (options.createEventRequestFromHttp || createEventRequestFromHttp)(req)
     const channels = eventRequest.channels
 
