@@ -323,7 +323,6 @@ exports.express = function (options = {}) {
     else console.warn('No events will flow because none provided via options.events')
   }
 
-  let nextMessageId = 0
   return httpRequestHandler(protocolErrorHandler(function (req, res, next) {
     const gripRequest = options.grip && gripRequestFromHttp(req)
 
@@ -352,7 +351,6 @@ exports.express = function (options = {}) {
     }
 
     initialEvents.push(textEventStream.event({
-      id: String(++nextMessageId),
       event: 'stream-open',
       data: ''
     }))
