@@ -316,7 +316,7 @@ exports.express = function (options = {}) {
   // should emit { channel, event } objects
   const addressedEvents = new PassThrough({ objectMode: true })
 
-  if (appEvents.createAddressedEventsReadable) {
+  if (appEvents && appEvents.createAddressedEventsReadable) {
     appEvents.createAddressedEventsReadable().pipe(addressedEvents)
   } else {
     if (appEvents) throw new Error('Unexpected value of options.events')

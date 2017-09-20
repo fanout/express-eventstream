@@ -1,10 +1,13 @@
-// const expressEventStream = require('../')
-// const { assert } = require('chai')
+const expressEventStream = require('../')
+const { assert } = require('chai')
 
 module.exports = {
   'express-eventstream': {
-    '#createMiddleware()': () => {
-      // const middleware = expressEventStream.createMiddleware()
+    '#events()': () => {
+      expressEventStream.events()
+    },
+    '#express()': () => {
+      expressEventStream.express()
     }
   }
 }
