@@ -149,7 +149,7 @@ const textEventStream = {
    */
   stream (events) {
     if (!Array.isArray(events)) events = [events]
-    return events.join('\n\n') + '\n\n'
+    return events.join('\n\n')
   },
   commentPrefix: ':',
   newline: '\n'
