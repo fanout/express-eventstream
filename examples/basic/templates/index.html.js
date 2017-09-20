@@ -1,7 +1,5 @@
-module.exports = ({ elementsUrl, eventsUrl }) => `
+module.exports = ({ publicUrl, eventsUrl }) => `
   <!doctype html>
-
-  <script src="${elementsUrl}/demo-events-app.js"></script>
 
   <h1>express-eventstream basic demo</h1>
 
@@ -10,4 +8,8 @@ module.exports = ({ elementsUrl, eventsUrl }) => `
   </p>
 
   <demo-events-app url="${eventsUrl}" />
+
+  <script src="${publicUrl}polyfills/webcomponents/webcomponents-loader.js"></script>
+  <script src="${publicUrl}elements/demo-events-app.js"></script>
+
 `

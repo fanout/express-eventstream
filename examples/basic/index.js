@@ -49,7 +49,7 @@ function createDemoApplication ({ eventsUrl, grip }) {
     .get('/', (req, res) => {
       res.format({
         html: () => res.send(renderIndexHtml({
-          elementsUrl: '/elements',
+          publicUrl: '/',
           eventsUrl: req.query.eventsUrl || eventsUrl || '/events/'
         }))
       })

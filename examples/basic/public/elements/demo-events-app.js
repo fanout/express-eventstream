@@ -1,5 +1,9 @@
 /* eslint-env browser */
-(function () {
+(function (customElementsReady) {
+  if ('customElements' in window) return customElementsReady()
+  else if (window.WebComponents) window.addEventListener('WebComponentsReady', customElementsReady)
+  else throw new Error('user-agent does not support Custom Elements')
+})(function () {
   const ConnectionStates = makeEnum(
     'uninitialized',
     'connecting',
@@ -111,7 +115,7 @@
       return `<li>${log}</li>`
     })
     .join('\n')
-  }</ol>
+}</ol>
 
         <h2>Events</h2>
         <ul id="events-list">${
@@ -120,7 +124,7 @@
       return `<li>${event.type} - ${event.data}</li>`
     })
     .join('\n')
-  }</ul>
+}</ul>
       `
       return html
     }
@@ -178,7 +182,6 @@ usage:
     const api = {
       listenTo (element) {
         Object.keys(eventTypeToHandler).forEach(eventType => {
-          console.log('addEventListener', eventType)
           element.addEventListener(eventType, this)
         })
       },
@@ -206,4 +209,4 @@ usage:
     }
     return Object.assign(api, eventTypeToHandler)
   }
-}())
+})

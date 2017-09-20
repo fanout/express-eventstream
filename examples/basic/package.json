@@ -12,6 +12,7 @@
     "express-eventstream"
   ],
   "dependencies": {
+    "@webcomponents/webcomponentsjs": "^1.0.12",
     "concat-stream": "^1.6.0",
     "express": "^4.15.4",
     "morgan": "^1.8.2"
