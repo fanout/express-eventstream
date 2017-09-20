@@ -4,7 +4,6 @@ const gripLib = require('grip')
 const { Readable, PassThrough, Transform, Writable } = require('stream')
 const debug = require('debug')('express-eventstream')
 const { EventEmitter } = require('events')
-const url = require('url')
 
 /**
  * Represents an application's events, which can be published across one or more logical channels
@@ -34,9 +33,8 @@ exports.events = ({ grip, gripPubControl, prefix = 'events-' } = {}) => {
  */
 function parseGripUrl (gripUrl) {
   if (!gripUrl) return
-  const parsedUrl = url.parse(gripUrl, true)
-  const withoutQuery = url.format(Object.assign({}, parsedUrl, { query: {}, search: '' }))
-  const gripOptions = Object.assign({}, parsedUrl.query, { controlUri: withoutQuery })
+  const parsed = gripLib.parseGripUri(gripUrl)
+  const gripOptions = Object.assign({}, parsed, {controlUri: parsed.control_uri})
   return gripOptions
 }
 
