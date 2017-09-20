@@ -450,6 +450,7 @@ function protocolErrorHandler (handler) {
             res.write(textEventStream.stream(textEventStream.event(
               libraryProtocol.errorEvent('bad-request', message)
             )))
+            res.end()
           },
           default: () => {
             res.status(400).send(message)
