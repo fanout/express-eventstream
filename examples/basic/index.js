@@ -81,6 +81,7 @@ function main () {
   })
   const server = http.createServer(app)
   const port = process.env.PORT || 0
+  if ( ! port) console.warn('use PORT environment variable to choose an HTTP port')
   return new Promise((resolve, reject) => {
     process.once('SIGINT', function () {
       console.warn('SIGINT: closing server')
