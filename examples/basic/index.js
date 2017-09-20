@@ -33,7 +33,7 @@ function TimeEvents ({ interval = 1000 } = {}) {
 /**
  * Create an express application to power this demo
  * @param {String} eventsUrl - where the demo ui should connect its EventSource
- * @param {Object} grip - grip options
+ * @param {Object|String} grip - grip options
  * @param {String} grip.key - secret key that will be used to validate Grip-Sig headers
  * @param {String} grip.controlUri - URI of Control Plane server that will be used to publish events when using GRIP * @returns {express}
  * @returns {express.Application}
@@ -73,15 +73,12 @@ function createDemoApplication ({ eventsUrl, grip }) {
  */
 function main () {
   const app = createDemoApplication({
-    eventsUrl: process.env.GRIP_URL || '/events/?channel=clock',
-    grip: {
-      key: process.env.GRIP_KEY || 'changeme', // 'changeme' is the default key that ships with local pushpin
-      controlUri: process.env.GRIP_CONTROL_URI || 'http://localhost:5561' // defaults to local pushpin
-    }
+    eventsUrl: process.env.EVENTS_URL || '/events/?channel=clock',
+    grip: process.env.GRIP_URL
   })
   const server = http.createServer(app)
   const port = process.env.PORT || 0
-  if ( ! port) console.warn('use PORT environment variable to choose an HTTP port')
+  if (!port) console.warn('use PORT environment variable to choose an HTTP port')
   return new Promise((resolve, reject) => {
     process.once('SIGINT', function () {
       console.warn('SIGINT: closing server')
