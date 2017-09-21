@@ -1,7 +1,7 @@
 {
   "name": "express-eventstream",
   "version": "1.0.0",
-  "description": "",
+  "description": "A library to easily create web endpoints that stream events to clients",
   "main": "index.js",
   "scripts": {
     "test": "mocha",
@@ -9,14 +9,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gobengo/express-eventstream.git"
+    "url": "git+https://github.com/fanout/express-eventstream.git"
   },
-  "author": "",
+  "author": "fanout.io",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/gobengo/express-eventstream/issues"
+    "url": "https://github.com/fanout/express-eventstream/issues"
   },
-  "homepage": "https://github.com/gobengo/express-eventstream#readme",
+  "homepage": "https://github.com/fanout/express-eventstream#readme",
   "dependencies": {
     "chai": "^4.1.1",
     "debug": "^3.0.1",
