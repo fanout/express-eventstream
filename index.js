@@ -19,10 +19,7 @@ exports.events = ({ grip, gripPubControl, prefix = 'events-' } = {}) => {
     if (!grip.controlUri) {
       console.warn('Will not be able to publish to gripPubControl with falsy uri: ', grip.controlUri)
     }
-    gripPubControl = new gripLib.GripPubControl({
-      control_uri: grip.controlUri.replace(/\/$/, ''), // https://github.com/fanout/node-pubcontrol/pull/1
-      key: grip.key
-    })
+    gripPubControl = new gripLib.GripPubControl(grip)
   }
   return Events({ gripPubControl, prefix })
 }
