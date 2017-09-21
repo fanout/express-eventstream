@@ -1,0 +1,31 @@
+{
+  "name": "express-eventstream",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha",
+    "lint": "eslint --fix index.js examples/basic/index.js 'examples/basic/{templates,public/elements}/**/*.js'"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gobengo/express-eventstream.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/gobengo/express-eventstream/issues"
+  },
+  "homepage": "https://github.com/gobengo/express-eventstream#readme",
+  "dependencies": {
+    "chai": "^4.1.1",
+    "debug": "^3.0.1",
+    "grip": "^1.2.5",
+    "mocha": "^3.5.0",
+    "promise-retry": "^1.1.1",
+    "pump": "^1.0.2"
+  },
+  "engines": {
+    "node": ">=7.6.0"
+  }
+}
