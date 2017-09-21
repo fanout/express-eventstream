@@ -42,6 +42,11 @@ function createDemoApplication ({ eventsUrl, grip }) {
   const timeEvents = TimeEvents({ interval: 5 * 1000 })
   const events = expressEventStream.events({ grip })
   timeEvents.pipe(events.channel('clock'))
+    .on('error', (error) => {
+      console.error('error in channel stream. exiting', error)
+      process.exit(1)
+    })
+
   // for one-offs, you can always do events.channel('clock').write({ event: 'time', data: '...' })
   const app = express()
     .use(require('morgan')('tiny'))

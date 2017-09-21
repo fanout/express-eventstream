@@ -4,6 +4,7 @@ const gripLib = require('grip')
 const { Readable, PassThrough, Transform, Writable } = require('stream')
 const debug = require('debug')('express-eventstream')
 const { EventEmitter } = require('events')
+const promiseRetry = require('promise-retry')
 
 /**
  * Represents an application's events, which can be published across one or more logical channels
@@ -42,7 +43,7 @@ function parseGripUrl (gripUrl) {
  * An application's events, which can be published across one or more channels
  * @returns {Events}
  */
-function Events ({ gripPubControl, prefix }) {
+function Events ({ gripPubControl, prefix, gripPublishRetry = true }) {
   if (!gripPubControl) debug('Events will not publish to grip because no gripPubControl', gripPubControl)
   // all events written to all channels as { channel, event } objects
   let addressedEvents = new EventEmitter().on('addressedEvent', (ae) => debug('express-eventstream event', ae))
@@ -60,11 +61,7 @@ function Events ({ gripPubControl, prefix }) {
      * @returns {Writable}
      */
     channel (channelName) {
-      const pubControlWritable = gripPubControl && new GripPubControlWritable(gripPubControl, `${prefix}${channelName}`, { retryWait: 5000 })
-        .on('error', (error) => {
-          console.log('pubControlWritable error (does removing this cause unhandledRejection', error.name)
-          throw error
-        })
+      const pubControlWritable = gripPubControl && new GripPubControlWritable(gripPubControl, `${prefix}${channelName}`, { retry: gripPublishRetry })
         .on('grip:published', ({ event, channel }) => debug('published to gripPubControl', channel, event))
 
       const channel = new Writable({
@@ -75,13 +72,23 @@ function Events ({ gripPubControl, prefix }) {
             return callback()
           }
           // still give backpressure to anyone piping to this
-          if (pubControlWritable.write(event)) {
+          if (pubControlWritable.write(event, (error) => {
+            this.emit('grip:failedToPublish', { event, error })
+          })) {
             callback()
           } else {
             pubControlWritable.on('drain', callback)
           }
         }
       })
+
+      // re-emit errors from 'channel' so user can respond to them
+      // if (pubControlWritable) pubControlWritable.on('error', (error) => channel.emit('error', error))
+      if (pubControlWritable) {
+        pubControlWritable.on('error', (error) => {
+          console.warn('Error publishing via GRIP. This happens. Giving up on this event.')
+        })
+      }
 
       return channel
     },
@@ -203,7 +210,7 @@ class GripPubControlWritable extends Writable {
    * @param {(Number|Boolean)} retryWait - if truthy, number of milliseconds to wait before retrying failed publish attempts.
    * If falsy, there will be no retrying and the writable will emit an error
    */
-  constructor (gripPubControl, channel, { retryWait = 5000 } = {}) {
+  constructor (gripPubControl, channel, { retry } = {}) {
     super({
       objectMode: true,
       write (event, encoding, callback) {
@@ -220,19 +227,25 @@ class GripPubControlWritable extends Writable {
             })
           })
         }
-        if (retryWait) {
-          publish = retry(publish, {
-            wait: retryWait,
-            onError: (error) => {
-              console.warn(`Error publishing to Grip Control. Will retry in ${retryWait}ms`, error)
-            }
-          })
+        if (retry) {
+          const retryOptions = Object.assign({ factor: 1, retries: 1, minTimeout: 3000 }, typeof retry === 'object' ? retry : {})
+          const publishNoRetry = publish
+          publish = (...args) => promiseRetry(
+            (retry, attemptNumber) => {
+              return publishNoRetry(...args).catch((error) => {
+                console.warn(`Error publishing to Grip Control`, error)
+                if (attemptNumber <= retryOptions.retries) console.warn(`Will retry ${retryOptions.retries - attemptNumber + 1} more times`)
+                retry(error)
+              })
+            },
+            retryOptions
+          )
         }
         publish(channel, sseEncodedEvent)
-          .catch(callback)
           .then(() => {
             callback()
           })
+          .catch(callback)
       }
     })
   }
