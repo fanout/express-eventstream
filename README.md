@@ -19,10 +19,7 @@ These endpoints are also [GRIP-aware](pushpin.org/docs/protocols/grip/), so they
     ```  
     // server.js
     const expressEventStream = require('express-eventstream')
-    const grip = {
-      controlUri: process.env.GRIP_CONTROL_URI || 'http://localhost:5561',
-      key: process.env.GRIP_KEY || 'changeme'
-    };
+    const grip = process.env.GRIP_URL // e.g. 'http://localhost:5561?key=changeme'
     const events = expressEventStream.events({ grip })
     ```
 
@@ -30,7 +27,7 @@ These endpoints are also [GRIP-aware](pushpin.org/docs/protocols/grip/), so they
 
     ```
     const yourApp = require('express')()
-    const yourApp.get('/events/', expressEventStream.express({ events, grip })
+    yourApp.get('/events/', expressEventStream.express({ events, grip })
     ```
 
 3. Publish events throughout your app
