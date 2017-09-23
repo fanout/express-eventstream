@@ -63,7 +63,7 @@ function createDemoApplication ({ eventsUrl, grip }) {
       req.pipe(concat((reqBody) => {
         events.channel('messages').write({
           event: 'message',
-          data: reqBody.toString()
+          data: {text: reqBody.toString()}
         })
         res.status(201).end()
       }))

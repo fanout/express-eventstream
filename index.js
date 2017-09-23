@@ -166,7 +166,8 @@ class ServerSentEventEncoder extends Transform {
   }
   _transform (event, encoding, callback) {
     try {
-      this.push(textEventStream.event(event))
+      const encodedEvent = { event: event.event, data: JSON.stringify(event.data) }
+      this.push(textEventStream.event(encodedEvent))
     } catch (error) {
       return callback(error)
     }
@@ -211,7 +212,8 @@ class GripPubControlWritable extends Writable {
     super({
       objectMode: true,
       write (event, encoding, callback) {
-        const sseEncodedEvent = textEventStream.event(event)
+        const encodedEvent = { event: event.event, data: JSON.stringify(event.data) }
+        const sseEncodedEvent = textEventStream.event(encodedEvent)
         let publish = (channel, content) => {
           return new Promise((resolve, reject) => {
             gripPubControl.publishHttpStream(channel, content, (success, message, context) => {
