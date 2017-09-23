@@ -1,10 +1,10 @@
-# express-eventstream
+# Express EventStream
 
 A library to easily create web endpoints that stream events to clients.
 
 These endpoints speak [server-sent events (SSE)](https://en.wikipedia.org/wiki/Server-sent_events), so can be easily consumed in web browsers using [EventSource](https://developer.mozilla.org/en-US/docs/Web/API/EventSource).
 
-These endpoints are also [GRIP-aware](pushpin.org/docs/protocols/grip/), so they can be used with [Pushpin](http://pushpin.org/) or the [Fanout Cloud](https://fanout.io/cloud/) to easily scale out your real-time APIs.
+The library is [GRIP-aware](http://pushpin.org/docs/protocols/grip/), which means it can be used with [Pushpin](http://pushpin.org/) or [Fanout Cloud](https://fanout.io/cloud/) for easy scaling.
 
 ## Examples
 
@@ -35,20 +35,16 @@ These endpoints are also [GRIP-aware](pushpin.org/docs/protocols/grip/), so they
     ```
     yourApp.post('/messages/', (req, res, next) => {
       req.pipe(require('concat-stream')((reqBody) => {
-        events.channel('events-messages').write({
+        events.channel('messages').write({
           event: 'message',
-          data: reqBody.toString()
+          data: {text: reqBody.toString()}
         })
         res.status(201).end()
       }))
     })
     ```
 
-    **Note**: If you're not using GRIP, and your application has several processes running, published events will only go to HTTP Connections on the process that publishes the message. To scale to more than one web server process, your options include:
-
-    * a single dedicated event-publishing process
-    * [Pushpin](http://pushpin.org/) + [GRIP](http://pushpin.org/docs/protocols/grip/)
-    * [Fanout Cloud](https://fanout.io/cloud/)
+    **Note**: If you're not using GRIP, and your application has several processes running, published events will only go to HTTP Connections on the process that publishes the message. To scale to more than one web server process, you'll need to use a [GRIP-compatible](http://pushpin.org/docs/protocols/grip/) proxy such as [Pushpin](http://pushpin.org/) or [Fanout Cloud](https://fanout.io/cloud/), and make sure you publish each event from one place.
 
 4. Stream events to your web client using [EventSource](https://developer.mozilla.org/en-US/docs/Web/API/EventSource)
 
