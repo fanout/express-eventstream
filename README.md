@@ -8,7 +8,7 @@ The library is [GRIP-aware](http://pushpin.org/docs/protocols/grip/), which mean
 
 ## Examples
 
-* [basic](./examples/basic/) - Publishes 'time' events every second on the 'clock' channel, and a web ui to show connection status, connection log, and event log
+* [basic](./examples/basic/) - Publishes 'time' events every second on the 'clock' channel, and a web UI to show connection status, connection log, and event log.
 
 ## Getting Started
 
