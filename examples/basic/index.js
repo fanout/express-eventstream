@@ -21,7 +21,7 @@ function TimeEvents ({ interval = 1000 } = {}) {
       if (started) return
       const makeTimeEvent = () => ({
         event: 'time',
-        data: (new Date()).toISOString()
+        data: {value: (new Date()).toISOString()}
       })
       this.push(makeTimeEvent())
       setInterval(() => this.push(makeTimeEvent()), interval)
