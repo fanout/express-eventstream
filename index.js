@@ -337,7 +337,7 @@ exports.express = function (options = {}) {
     const gripRequest = options.grip && gripRequestFromHttp(req)
 
     // validate sig
-    if (gripRequest && gripRequest.sig && !gripLib.validateSig(gripRequest.sig, options.grip.key)) {
+    if (gripRequest && options.grip.key && (!gripRequest.sig || !gripLib.validateSig(gripRequest.sig, options.grip.key))) {
       return Promise.reject(new GripSigInvalidError('Grip-Sig invalid'))
     }
 
