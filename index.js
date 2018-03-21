@@ -325,6 +325,7 @@ exports.express = function (options = {}) {
   const appEvents = options.events
   // should emit { channel, event } objects
   const addressedEvents = new PassThrough({ objectMode: true })
+  addressedEvents.setMaxListeners(0);
 
   if (appEvents && appEvents.createAddressedEventsReadable) {
     appEvents.createAddressedEventsReadable().pipe(addressedEvents)
