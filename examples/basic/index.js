@@ -94,7 +94,7 @@ function main () {
 
 if (require.main === module) {
   process.on('unhandledRejection', (err, p) => {
-    console.error('unhandledRejection', p.ben, p, err)
+    console.error('unhandledRejection', p, err)
     process.exit(1)
   })
   main()
