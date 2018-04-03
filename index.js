@@ -6,6 +6,8 @@ const debug = require('debug')('express-eventstream')
 const { EventEmitter } = require('events')
 const promiseRetry = require('promise-retry')
 
+const KEEP_ALIVE_TIMEOUT = 20;
+
 /**
  * Represents an application's events, which can be published across one or more logical channels
  * @param {Object|String} grip - Grip options or GRIP_URL
@@ -163,15 +165,26 @@ const textEventStream = {
 class ServerSentEventEncoder extends Transform {
   constructor () {
     super({ writableObjectMode: true })
+    this.keepAliveTimer = null
+    this.setupKeepAliveTimer()
   }
   _transform (event, encoding, callback) {
     try {
+      this.setupKeepAliveTimer()
       const encodedEvent = { event: event.event, data: JSON.stringify(event.data) }
       this.push(textEventStream.event(encodedEvent))
     } catch (error) {
       return callback(error)
     }
     callback()
+  }
+  setupKeepAliveTimer () {
+    if (this.keepAliveTimer) {
+      clearInterval(this.keepAliveTimer)
+    }
+    this.keepAliveTimer = setInterval(() => {
+      this.push(textEventStream.event({ event: 'keep-alive', data: '' }))
+    }, KEEP_ALIVE_TIMEOUT * 1000)
   }
 }
 
@@ -385,7 +398,7 @@ exports.express = function (options = {}) {
               data: ''
             }).replace(/\n/g, '\\n'),
             'format=cstring',
-            'timeout=20'
+            'timeout=' + KEEP_ALIVE_TIMEOUT
           ].join('; ')
           res.setHeader('Grip-Keep-Alive', keepAliveHeaderValue)
         } else {
