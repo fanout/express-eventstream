@@ -12,7 +12,7 @@
     "url": "git+https://github.com/fanout/express-eventstream.git"
   },
   "author": "fanout.io",
-  "license": "ISC",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/fanout/express-eventstream/issues"
   },
